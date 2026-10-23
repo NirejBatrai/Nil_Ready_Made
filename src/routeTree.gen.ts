@@ -23,6 +23,7 @@ import { Route as ShellReconciliationRouteImport } from './routes/_shell.reconci
 import { Route as ShellReportsRouteImport } from './routes/_shell.reports'
 import { Route as ShellSalesRouteImport } from './routes/_shell.sales'
 import { Route as ShellSettingsRouteImport } from './routes/_shell.settings'
+import { Route as DevDbHealthRouteImport } from './routes/dev.db-health'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -93,6 +94,11 @@ const ShellSettingsRoute = ShellSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => ShellRoute,
 } as any)
+const DevDbHealthRoute = DevDbHealthRouteImport.update({
+  id: '/dev/db-health',
+  path: '/dev/db-health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/reports': typeof ShellReportsRoute
   '/sales': typeof ShellSalesRoute
   '/settings': typeof ShellSettingsRoute
+  '/dev/db-health': typeof DevDbHealthRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   '/reports': typeof ShellReportsRoute
   '/sales': typeof ShellSalesRoute
   '/settings': typeof ShellSettingsRoute
+  '/dev/db-health': typeof DevDbHealthRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/_shell/reports': typeof ShellReportsRoute
   '/_shell/sales': typeof ShellSalesRoute
   '/_shell/settings': typeof ShellSettingsRoute
+  '/dev/db-health': typeof DevDbHealthRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/sales'
     | '/settings'
+    | '/dev/db-health'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -172,6 +182,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/sales'
     | '/settings'
+    | '/dev/db-health'
   id:
     | '__root__'
     | '/'
@@ -188,11 +199,13 @@ export interface FileRouteTypes {
     | '/_shell/reports'
     | '/_shell/sales'
     | '/_shell/settings'
+    | '/dev/db-health'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ShellRoute: typeof ShellRouteWithChildren
+  DevDbHealthRoute: typeof DevDbHealthRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -295,6 +308,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSettingsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/dev/db-health': {
+      id: '/dev/db-health'
+      path: '/dev/db-health'
+      fullPath: '/dev/db-health'
+      preLoaderRoute: typeof DevDbHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -333,6 +353,7 @@ const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ShellRoute: ShellRouteWithChildren,
+  DevDbHealthRoute: DevDbHealthRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
