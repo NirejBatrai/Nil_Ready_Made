@@ -1,10 +1,21 @@
 # Changelog
 
 Dated record of completed work, decisions, test evidence and corrections. Newest first.
-Commit hashes refer to this repository; "uncommitted" means the work exists only in the
-working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
+Commit hashes refer to this repository. Each heading names the commit that contains the work;
+"uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
-## 2026-10-24 — Handbook audit corrections and hardening (uncommitted)
+## 2026-10-24 — Foundation work committed (local, not pushed)
+
+- `ced5535` `feat: add secure owner authentication and product management foundation` (28 files):
+  product model/service and Backend Steps 2a–3b, with their tests.
+- `4da3c13` `docs: add AI agent handbook and harden test isolation` (10 files): `AGENTS.md`,
+  `docs/`, `envDir: false`, `safeErrors` on `getDatabaseHealth`, new source check.
+- Staged by explicit file paths after checking both file lists against the working tree; no `.env`
+  or secrets included. Working tree clean afterwards on `feature/mongodb-foundation`.
+- Neither commit was pushed; no history was amended or rewritten; `main` and the local backup refs
+  were not changed. GitHub was not checked. This status update is a separate docs-only commit.
+
+## 2026-10-24 — Handbook audit corrections and hardening (committed in `4da3c13`)
 
 - Audit of `AGENTS.md` and `docs/` against code, tests, `package.json` and Git: implementation
   claims for Steps 2a–3b matched; ten wording discrepancies corrected (`.env` loading by tests,
@@ -17,14 +28,14 @@ working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 - Results: `tsc` exit 0; lint 0 errors / 11 warnings; `bun run test` 161 passed, 0 failed,
   36 skipped; `bun run test:e2e` 34 passed, 0 failed, 1 skipped; nothing left running.
 
-## 2026-10-23 — Documentation system
+## 2026-10-23 — Documentation system (committed in `4da3c13`)
 
 - Added `AGENTS.md` (rewritten as the agent entry point) and `docs/` (`PROJECT_STATUS`,
   `ARCHITECTURE`, `SECURITY`, `TESTING`, `ROADMAP`, `CHANGELOG`). Documentation only.
 - Re-verified: `tsc`/`tsgo` exit 0; lint 0 errors / 11 warnings; `bun run test` 160 passed,
   0 failed, 36 skipped; `bun run test:e2e` 34 passed, 0 failed, 1 skipped.
 
-## 2026-10-23 — Backend Step 3b: owner-only product creation (uncommitted)
+## 2026-10-23 — Backend Step 3b: owner-only product creation (committed in `ced5535`)
 
 - `createProductForOwner` (POST, `safeErrors` + `requireOwner`) and `/owner/products/new`
   (multi-variant form, optional write-only cost, no stock fields).
@@ -40,41 +51,41 @@ working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 - Correction: a suspected "stale product list" bug was disproved by a stricter test (the test had
   read the page during its loading state); the cache change made for it was reverted.
 
-## 2026-10-23 — Backend Step 3a: read-only owner product list (uncommitted)
+## 2026-10-23 — Backend Step 3a: read-only owner product list (committed in `ced5535`)
 
 - `/owner/products` + `listProductsForOwner` (never returns cost); `/login?redirect=` allowlists
   exactly `/owner/products`; "Manage products (real data)" link.
 - Correction: a first combined mutation run was invalid (filtered tests skipped their setup);
   redone one protection at a time with control runs.
 
-## 2026-10-23 — Backend Step 2c: login UI (uncommitted)
+## 2026-10-23 — Backend Step 2c: login UI (committed in `ced5535`)
 
 - `/login` (POST form, hydration-guarded submit, password cleared each attempt, friendly
   database errors) and a landing-page "Owner sign-in (real account)" link.
 - Correction: the first hydration-guard test always passed because Button CSS classes contain
   the word "disabled"; fixed to check the `disabled=""` attribute.
 
-## 2026-10-23 — Backend Step 2b: request-flow integration (uncommitted)
+## 2026-10-23 — Backend Step 2b: request-flow integration (committed in `ced5535`)
 
 - Found: thrown server-function errors reach the browser with stack traces (Seroval). Added
   `safeErrors` as the first middleware everywhere; validators never throw.
 - `getProductForOwner` (owner-only), `/dev/auth`, opt-in isolated E2E (`bun run test:e2e`);
   dev-dependency `playwright-core@1.64.1`.
 
-## 2026-10-23 — Product model and server-only product service (uncommitted)
+## 2026-10-23 — Product model and server-only product service (committed in `ced5535`)
 
 - `src/server/models/product.server.ts` and `src/server/products.server.ts`: Zod-validated
   input, `productPricingError` (per-product minimum; owner confirmed there is **no** universal
   ฿350 minimum), cost `select: false`, optimistic concurrency, pricing changes only via `save()`.
 - Dev-dependency `mongodb-memory-server@11.3.0` for isolated database tests.
 
-## 2026-10-23 — Backend Step 2a: owner authentication core (uncommitted)
+## 2026-10-23 — Backend Step 2a: owner authentication core (committed in `ced5535`)
 
 - scrypt hashing, MongoDB sessions (token hash only, 7-day TTL), in-memory attempt limit
   (5 / email+IP / 15 min), `single_owner` index, local `bun run auth:create-owner`, dev server
   bound to `127.0.0.1`. Employee accounts, audit, password reset postponed by the owner.
 
-## 2026-10-23 — Backend Step 1: MongoDB connection foundation (`722d86f`, local branch, no upstream)
+## 2026-10-23 — Backend Step 1: MongoDB connection foundation (`722d86f`, local branch, not pushed)
 
 - Mongoose `9.11.3`, server-only `db.server.ts`, dev-only health check, `.env.example`,
   `nitro.config.ts` punycode alias for the Cloudflare build.

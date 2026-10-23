@@ -20,34 +20,30 @@ Luxe Retail OS is a mobile-first POS / back-office app for a small shop in Thail
 
 | Item                            | Value                                                                                                                                                                                                  |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Current branch                  | `feature/mongodb-foundation` (no upstream configured; no push recorded locally; GitHub not checked)                                                                                                    |
-| Last commit on branch           | `722d86f` Add MongoDB connection foundation                                                                                                                                                            |
+| Current branch                  | `feature/mongodb-foundation`; working tree clean after the commits below. No upstream configured; **not pushed** (no push made or recorded locally; GitHub not checked)                                |
+| Commits on branch, newest first | `4da3c13` docs: add AI agent handbook and harden test isolation; `ced5535` feat: add secure owner authentication and product management foundation; `722d86f` Add MongoDB connection foundation        |
 | `main`                          | `49aba5c`; matches `origin/main` according to the local remote-tracking ref (last updated 2026-10-23, not re-fetched)                                                                                  |
-| Commits on branch not on `main` | 1 (`722d86f`)                                                                                                                                                                                          |
+| Commits on branch not on `main` | `722d86f`, `ced5535`, `4da3c13`, plus the separate docs-only commit that records this status (see `git log`)                                                                                           |
 | Local backup refs               | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision |
 
-> **WARNING — large uncommitted work.** The product model/service step and Backend Steps 2a–3b (authentication, login UI, owner
-> product list, product creation, index setup, and their tests) exist **only as uncommitted and
-> untracked files** in the working tree:
-> modified `bun.lock`, `package.json`, `src/routeTree.gen.ts`, `src/routes/index.tsx`,
-> `tsconfig.json`, `vite.config.ts`; untracked `scripts/`, `src/lib/{auth,products,server-errors}.ts`,
-> `src/routes/{dev.auth,login,owner.products,owner.products_.new}.tsx`, `src/server/auth/`,
-> `src/server/models/`, `src/server/products.server.ts`, and five new test files.
-> The handbook and its audit follow-up are also uncommitted: modified `AGENTS.md`,
-> `vitest.config.ts`, `src/lib/db-health.ts`, `src/test/db.test.ts`; untracked `docs/`.
-> **Never discard, reset, stash or overwrite them.** Committing them requires the owner's approval.
+> **Committed, not pushed.** The product model/service step and Backend Steps 2a–3b are in
+> commit `ced5535`; the handbook (`AGENTS.md`, `docs/`) and the audit hardening (`envDir: false`
+> in `vitest.config.ts`, `safeErrors` on `getDatabaseHealth`) are in `4da3c13`. Both exist only on
+> the local branch `feature/mongodb-foundation`. Pushing or merging requires the owner's approval.
 
 ## Completed backend steps (VERIFIED in source and tests)
 
-| Step                                            | What exists                                                                                                                                                                                      |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1 — Connection foundation (committed `722d86f`) | `src/server/db.server.ts`: runtime `MONGODB_URI`, small pool, 5 s timeouts, sanitized errors; dev-only health check                                                                              |
-| Product model + server-only service             | `models/product.server.ts`, `products.server.ts` (validation, per-product minimum, cost hidden), isolated-DB tests with mongodb-memory-server                                                    |
-| 2a — Owner auth core                            | scrypt passwords, MongoDB sessions (token hash only, 7-day TTL), login limit, single-owner index, local `auth:create-owner` script, dev server bound to `127.0.0.1`                              |
-| 2b — Request-flow integration                   | `safeErrors` (no stack traces to the browser), `requireOwner` middleware, `getProductForOwner`, `/dev/auth`, opt-in isolated E2E suite                                                           |
-| 2c — Login UI                                   | `/login` (POST form, hydration-guarded), landing-page "Owner sign-in (real account)" link                                                                                                        |
-| 3a — Read-only product list                     | `/owner/products` + `listProductsForOwner` (never returns cost); allowlisted `/login?redirect=/owner/products`                                                                                   |
-| 3b — Product creation                           | `/owner/products/new` + `createProductForOwner`; SKU/barcode normalization; stock always 0; case-insensitive unique indexes; creation fails closed until indexes exist; local `db:setup-indexes` |
+| Step                                         | What exists                                                                                                                                                                                      |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 — Connection foundation (commit `722d86f`) | `src/server/db.server.ts`: runtime `MONGODB_URI`, small pool, 5 s timeouts, sanitized errors; dev-only health check                                                                              |
+| Product model + server-only service          | `models/product.server.ts`, `products.server.ts` (validation, per-product minimum, cost hidden), isolated-DB tests with mongodb-memory-server                                                    |
+| 2a — Owner auth core                         | scrypt passwords, MongoDB sessions (token hash only, 7-day TTL), login limit, single-owner index, local `auth:create-owner` script, dev server bound to `127.0.0.1`                              |
+| 2b — Request-flow integration                | `safeErrors` (no stack traces to the browser), `requireOwner` middleware, `getProductForOwner`, `/dev/auth`, opt-in isolated E2E suite                                                           |
+| 2c — Login UI                                | `/login` (POST form, hydration-guarded), landing-page "Owner sign-in (real account)" link                                                                                                        |
+| 3a — Read-only product list                  | `/owner/products` + `listProductsForOwner` (never returns cost); allowlisted `/login?redirect=/owner/products`                                                                                   |
+| 3b — Product creation                        | `/owner/products/new` + `createProductForOwner`; SKU/barcode normalization; stock always 0; case-insensitive unique indexes; creation fails closed until indexes exist; local `db:setup-indexes` |
+
+Product model/service and Steps 2a–3b: commit `ced5535`. Handbook and hardening: commit `4da3c13`.
 
 Details: [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md).
 
@@ -82,7 +78,7 @@ scope before implementing anything new. Candidate next steps are listed (unappro
 
 ## Outstanding limitations
 
-- All backend work since `722d86f` is uncommitted (see warning above).
+- Commits `722d86f`, `ced5535` and `4da3c13` are local only (not pushed or merged into `main`).
 - Demo screens still use simulated data and roles; the real product pages are separate.
 - No audit log, inventory-movement history, employee accounts or password reset.
 - Login attempt limit is in-memory (resets on restart, single process).
