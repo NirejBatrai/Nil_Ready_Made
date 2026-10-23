@@ -72,6 +72,12 @@ export function Receipt({
                 </span>
                 <span>{fmtTHB(i.qty * i.unitPrice)}</span>
               </div>
+              {i.lineDiscount > 0 && (
+                <div className="num flex justify-between text-muted-foreground">
+                  <span>Normal {fmtTHB(i.listPrice)}</span>
+                  <span>−{fmtTHB(i.lineDiscount)}</span>
+                </div>
+              )}
             </div>
           ) : (
             <div
@@ -84,6 +90,11 @@ export function Receipt({
                   {i.variantLabel}
                   {settings.showSkuOnReceipt ? ` · ${i.sku}` : ""}
                 </span>
+                {i.lineDiscount > 0 && (
+                  <span className="block text-xs text-muted-foreground">
+                    Normal {fmtTHB(i.listPrice)} · reduced −{fmtTHB(i.lineDiscount)}
+                  </span>
+                )}
               </span>
               <span className="text-right">{i.qty}</span>
               <span className="text-right">{fmtTHB(i.unitPrice)}</span>

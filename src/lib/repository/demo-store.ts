@@ -39,13 +39,30 @@ export function mutate(fn: (draft: DemoState) => void) {
   emit();
 }
 
+/**
+ * Upgrades demo data saved by an older version of the app.
+ * - Products without a minimum get minimum = normal price: sales at the listed price still work,
+ *   no reductions are possible until the owner sets a minimum, and no lower price is invented.
+ * - Older sale lines were always charged the list price, so listPrice = unitPrice is exact;
+ *   their minimum at time of sale is unknown and stays undefined.
+ */
+export function migrateDemoState(stored: DemoState): DemoState {
+  for (const p of stored.products) p.minimumSellingPrice ??= p.price;
+  for (const sale of stored.sales)
+    for (const i of sale.items) {
+      i.listPrice ??= i.unitPrice;
+      i.lineDiscount ??= 0;
+    }
+  return stored;
+}
+
 export function hydrateDemoState() {
   if (hydrated) return;
   hydrated = true;
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
-      state = JSON.parse(raw) as DemoState;
+      state = migrateDemoState(JSON.parse(raw) as DemoState);
       emit();
     }
   } catch {

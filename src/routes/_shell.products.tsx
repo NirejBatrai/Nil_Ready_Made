@@ -31,6 +31,8 @@ import { newId, repo } from "@/lib/repository";
 import { CATEGORY_LABEL, fmtTHB, variantLabel } from "@/lib/format";
 import type { Category, Product, ProductVariant } from "@/types/domain";
 import { pageHead } from "@/lib/seo";
+import { productPricingError } from "@/lib/calc";
+import { cn } from "@/lib/utils";
 
 type Search = { stock?: string | undefined };
 export const Route = createFileRoute("/_shell/products")({
@@ -103,6 +105,7 @@ function Products() {
     category: "other",
     description: "",
     price: 0,
+    minimumSellingPrice: 0,
     active: true,
     lowStockThreshold: s.settings.defaultLowStock,
     variants: [],
@@ -238,7 +241,14 @@ function Products() {
                         p.variants.length
                       )}
                     </td>
-                    <td className="num px-2 text-right">{fmtTHB(p.price)}</td>
+                    <td className="num px-2 text-right">
+                      {fmtTHB(p.price)}
+                      {p.minimumSellingPrice < p.price && (
+                        <span className="block text-[11px] text-muted-foreground">
+                          min {fmtTHB(p.minimumSellingPrice)}
+                        </span>
+                      )}
+                    </td>
                     <td className="num px-2 text-right">{total}</td>
                     <td className="px-2">
                       {total === 0 ? (
@@ -272,7 +282,11 @@ function Products() {
                         onClick={() =>
                           p.active
                             ? setArchiving(p)
-                            : repo.archiveProduct(p.id, true).then(() => toast.success("Restored"))
+                            : repo
+                                .archiveProduct(p.id, true)
+                                .then((r) =>
+                                  r.ok ? toast.success("Restored") : toast.error(r.error),
+                                )
                         }
                       >
                         {p.active ? <Archive /> : <RotateCcw />}
@@ -334,7 +348,9 @@ function Products() {
             <AlertDialogAction
               onClick={() =>
                 archiving &&
-                repo.archiveProduct(archiving.id, false).then(() => toast.success("Archived"))
+                repo
+                  .archiveProduct(archiving.id, false)
+                  .then((r) => (r.ok ? toast.success("Archived") : toast.error(r.error)))
               }
             >
               Archive
@@ -363,6 +379,12 @@ function ProductForm({
   const [colors, setColors] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Blank minimum means "same as selling price" (no reductions), so a forgotten field never allows ฿0 sales.
+  const [minDraft, setMinDraft] = useState(isNew ? "" : String(initial.minimumSellingPrice));
+  const minimum = minDraft === "" ? p.price : Number(minDraft);
+  const pricingError = p.price
+    ? productPricingError({ ...p, minimumSellingPrice: minimum })
+    : undefined;
   const up = (patch: Partial<Product>) => setP((x) => ({ ...x, ...patch }));
   const upV = (id: string, patch: Partial<ProductVariant>) =>
     setP((x) => ({
@@ -398,7 +420,7 @@ function ProductForm({
 
   const save = async () => {
     setErr(null);
-    let next = p;
+    let next: Product = { ...p, minimumSellingPrice: minimum };
     if (!hasVariants) {
       const v = p.variants[0] ?? {
         id: newId("var"),
@@ -470,12 +492,22 @@ function ProductForm({
             rows={2}
           />
         </Field>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Field label="Selling price ฿">
             <Input
               inputMode="numeric"
               value={p.price || ""}
               onChange={(e) => up({ price: Number(e.target.value.replace(/\D/g, "")) })}
+            />
+          </Field>
+          <Field label="Minimum price ฿">
+            <Input
+              inputMode="numeric"
+              value={minDraft}
+              placeholder={p.price ? String(p.price) : "Same as price"}
+              onChange={(e) => setMinDraft(e.target.value.replace(/\D/g, ""))}
+              aria-invalid={!!pricingError}
+              aria-describedby="pricing-help"
             />
           </Field>
           <Field label="Cost ฿ (owner only)">
@@ -495,6 +527,17 @@ function ProductForm({
             />
           </Field>
         </div>
+        <p
+          id="pricing-help"
+          className={cn(
+            "-mt-1 text-xs",
+            pricingError ? "text-destructive" : "text-muted-foreground",
+          )}
+          role={pricingError ? "alert" : undefined}
+        >
+          {pricingError ??
+            `Checkout allows ${p.price ? `${fmtTHB(minimum)}–${fmtTHB(p.price)}` : "prices from the minimum up to the selling price"}. Blank minimum = selling price (no reductions). Sales below the minimum are always blocked.`}
+        </p>
 
         <div className="rounded-md border p-3">
           <div className="flex items-center justify-between">

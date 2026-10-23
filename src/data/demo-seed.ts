@@ -93,6 +93,8 @@ type Def = {
   name: string;
   cat: Category;
   price: number;
+  /** Sample minimum selling price; defaults to `price` (no reductions). */
+  min?: number;
   cost?: number;
   sizes?: string[];
   colors?: string[];
@@ -107,6 +109,7 @@ const DEFS: Def[] = [
     name: "Leather Slide Sandal",
     cat: "shoes",
     price: 1290,
+    min: 990,
     cost: 520,
     sizes: ["37", "38", "39", "40"],
     colors: ["Tan", "Black"],
@@ -150,6 +153,7 @@ const DEFS: Def[] = [
     name: "Striped Beach Bag",
     cat: "bags",
     price: 690,
+    min: 490,
     cost: 240,
     colors: ["Navy", "Sand"],
     desc: "Heavy canvas beach bag, inner pocket.",
@@ -203,6 +207,7 @@ const DEFS: Def[] = [
     name: "Linen Midi Dress",
     cat: "dresses",
     price: 2290,
+    min: 1790,
     cost: 880,
     sizes: ["S", "M", "L"],
     colors: ["Sand", "White"],
@@ -222,6 +227,7 @@ const DEFS: Def[] = [
     name: 'Cabin Spinner 20"',
     cat: "suitcases",
     price: 3990,
+    min: 3290,
     cost: 1700,
     colors: ["Graphite", "Sand"],
     target: [2, 5],
@@ -247,6 +253,7 @@ const DEFS: Def[] = [
     name: "Beach Volleyball",
     cat: "sports_balls",
     price: 790,
+    min: 590,
     cost: 310,
     desc: "Soft-touch beach volleyball, size 5.",
   },
@@ -330,6 +337,7 @@ function buildProducts(): Product[] {
       category: d.cat,
       description: d.desc,
       price: d.price,
+      minimumSellingPrice: d.min ?? d.price,
       cost: d.cost,
       barcode: variants.length === 1 ? nth(variants, 0).barcode : undefined,
       active: true,
@@ -387,6 +395,9 @@ export function createSeed(): DemoSeed {
           sku: v.sku,
           qty,
           unitPrice: p.price,
+          listPrice: p.price,
+          minimumPrice: p.minimumSellingPrice,
+          lineDiscount: 0,
           unitCost: p.cost,
         };
       });

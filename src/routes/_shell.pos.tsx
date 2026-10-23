@@ -32,7 +32,7 @@ import { ProductThumb, StatusBadge, useEmployeeName } from "@/components/common"
 import { Receipt } from "@/components/sales/Receipt";
 import { useDemoState } from "@/lib/repository/demo-store";
 import { findVariant, newId, repo } from "@/lib/repository";
-import { cartTotals, cashChange } from "@/lib/calc";
+import { cartTotals, cashChange, discountBreaksMinimum, unitPriceError } from "@/lib/calc";
 import { CATEGORY_LABEL, fmtTHB, variantLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CartLine, Category, PaymentMethod, Product, Sale } from "@/types/domain";
@@ -54,10 +54,9 @@ function Pos() {
   const [cartOpen, setCartOpen] = useState(false);
   const [checkout, setCheckout] = useState(false);
   const [discountPct, setDiscountPct] = useState(0);
-  const [requestOpen, setRequestOpen] = useState<null | {
-    type: "discount" | "price_override";
-    variantId?: string;
-  }>(null);
+  const [requestOpen, setRequestOpen] = useState<null | { type: "discount" }>(null);
+  /** Price text being typed per cart line; only valid values are applied to the cart. */
+  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
   const [done, setDone] = useState<Sale | null>(null);
   const isOwner = s.role === "owner";
   const openSession = s.cashSessions.find((c) => c.status === "open");
@@ -77,9 +76,51 @@ function Pos() {
 
   const lines = cart.map((l) => {
     const f = findVariant(s, l.variantId)!;
-    return { ...l, product: f.product, variant: f.variant, unitPrice: f.product.price };
+    const rule = { listPrice: f.product.price, minimumSellingPrice: f.product.minimumSellingPrice };
+    const unitPrice = l.unitPrice ?? rule.listPrice;
+    const draft = priceDrafts[l.variantId];
+    const error =
+      (draft !== undefined
+        ? unitPriceError(draft === "" ? NaN : Number(draft), rule)
+        : unitPriceError(unitPrice, rule)) ??
+      (discountBreaksMinimum(unitPrice, discountPct, rule.minimumSellingPrice)
+        ? `A ${discountPct}% discount would take this item below its minimum selling price of ${fmtTHB(rule.minimumSellingPrice)}.`
+        : undefined);
+    return { ...l, product: f.product, variant: f.variant, unitPrice, ...rule, error };
   });
   const totals = cartTotals(lines, discountPct);
+  const priceBlocked = lines.some((l) => l.error);
+  const setPrice = (variantId: string, text: string) => {
+    const f = findVariant(s, variantId)!;
+    const rule = { listPrice: f.product.price, minimumSellingPrice: f.product.minimumSellingPrice };
+    const value = text === "" ? NaN : Number(text);
+    setPriceDrafts((d) => ({ ...d, [variantId]: text }));
+    // Only apply a value that passes the rule; the cart keeps its last valid price otherwise.
+    if (
+      !unitPriceError(value, rule) &&
+      !discountBreaksMinimum(value, discountPct, rule.minimumSellingPrice)
+    ) {
+      setCart((c) =>
+        c.map((l) =>
+          l.variantId === variantId
+            ? { ...l, unitPrice: value === rule.listPrice ? undefined : value }
+            : l,
+        ),
+      );
+    }
+  };
+  const chooseDiscount = (pct: number) => {
+    const blocked = lines.find((l) =>
+      discountBreaksMinimum(l.unitPrice, pct, l.minimumSellingPrice),
+    );
+    if (blocked) {
+      toast.error(
+        `${pct}% would take ${blocked.product.name} below its minimum selling price of ${fmtTHB(blocked.minimumSellingPrice)}.`,
+      );
+      return;
+    }
+    setDiscountPct(pct);
+  };
   const count = cart.reduce((a, l) => a + l.qty, 0);
   const cats = Array.from(new Set(s.products.filter((p) => p.active).map((p) => p.category)));
 
@@ -120,6 +161,7 @@ function Pos() {
   };
   const reset = () => {
     setCart([]);
+    setPriceDrafts({});
     setDiscountPct(0);
     setDone(null);
     setCheckout(false);
@@ -179,9 +221,42 @@ function Pos() {
                 <ProductThumb category={l.product.category} className="size-12 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{l.product.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {variantLabel(l.variant)} · {fmtTHB(l.unitPrice)}
+                  <div className="text-xs text-muted-foreground">{variantLabel(l.variant)}</div>
+                  <div className="num mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                    <label className="flex items-center gap-1">
+                      <span className="text-muted-foreground">Price ฿</span>
+                      <Input
+                        inputMode="decimal"
+                        value={priceDrafts[l.variantId] ?? String(l.unitPrice)}
+                        onChange={(e) =>
+                          setPrice(l.variantId, e.target.value.replace(/[^\d.]/g, ""))
+                        }
+                        onBlur={() =>
+                          !l.error && setPriceDrafts(({ [l.variantId]: _, ...rest }) => rest)
+                        }
+                        aria-label={`Unit price for ${l.product.name}`}
+                        aria-invalid={!!l.error}
+                        disabled={l.minimumSellingPrice === l.listPrice}
+                        className="num h-9 w-24 text-sm"
+                      />
+                    </label>
+                    <span className="text-muted-foreground">
+                      Normal {fmtTHB(l.listPrice)}
+                      {l.minimumSellingPrice < l.listPrice
+                        ? ` · Min ${fmtTHB(l.minimumSellingPrice)}`
+                        : " · Fixed price"}
+                    </span>
+                    {l.unitPrice < l.listPrice && (
+                      <span className="text-warning">
+                        −{fmtTHB((l.listPrice - l.unitPrice) * l.qty)}
+                      </span>
+                    )}
                   </div>
+                  {l.error && (
+                    <p className="mt-1 text-xs text-destructive" role="alert">
+                      {l.error}
+                    </p>
+                  )}
                   <div className="mt-2 flex items-center gap-2">
                     <Button
                       variant="outline"
@@ -203,14 +278,6 @@ function Pos() {
                     >
                       <Plus />
                     </Button>
-                    <button
-                      className="ml-1 text-[11px] text-muted-foreground underline"
-                      onClick={() =>
-                        setRequestOpen({ type: "price_override", variantId: l.variantId })
-                      }
-                    >
-                      Price change?
-                    </button>
                   </div>
                 </div>
                 <div className="flex flex-col items-end justify-between">
@@ -238,7 +305,7 @@ function Pos() {
               {[0, 5, 10].map((p) => (
                 <button
                   key={p}
-                  onClick={() => setDiscountPct(p)}
+                  onClick={() => chooseDiscount(p)}
                   className={cn(
                     "num rounded border px-2 py-0.5 text-xs",
                     discountPct === p && "border-primary bg-accent text-accent-foreground",
@@ -270,7 +337,7 @@ function Pos() {
         <Button
           size="xl"
           className="w-full"
-          disabled={!lines.length}
+          disabled={!lines.length || priceBlocked}
           onClick={() => {
             setCartOpen(false);
             setCheckout(true);
@@ -712,20 +779,18 @@ function RequestDialog({
   req,
   onClose,
 }: {
-  req: null | { type: "discount" | "price_override"; variantId?: string };
+  req: null | { type: "discount" };
   onClose: () => void;
 }) {
   const s = useDemoState();
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const f = req?.variantId ? findVariant(s, req.variantId) : undefined;
   const submit = async () => {
     if (!req) return;
     setBusy(true);
     const r = await repo.requestApproval({
       type: req.type,
-      variantId: req.variantId,
       amount: Number(amount) || undefined,
       reason,
     });
@@ -743,22 +808,14 @@ function RequestDialog({
     <Dialog open={!!req} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>
-            {req?.type === "discount" ? "Request a discount" : "Request a price override"}
-          </DialogTitle>
+          <DialogTitle>Request a discount</DialogTitle>
           <DialogDescription>
-            Employees can’t change prices directly. The owner will review this request.
+            Cart discounts need the owner. Item prices can be adjusted in the cart, never below each
+            item’s minimum selling price.
           </DialogDescription>
         </DialogHeader>
-        {f && (
-          <p className="num text-sm">
-            {f.product.name} · current price {fmtTHB(f.product.price)}
-          </p>
-        )}
         <div className="space-y-1.5">
-          <Label htmlFor="amt">
-            {req?.type === "discount" ? "Requested discount (%)" : "Requested price (฿)"}
-          </Label>
+          <Label htmlFor="amt">Requested discount (%)</Label>
           <Input
             id="amt"
             inputMode="numeric"

@@ -120,12 +120,13 @@ function Reports() {
       ["Metric", "Value (THB)"],
       ["Gross sales", m.gross],
       ["Discounts", m.discounts],
+      ["Price reductions (list − actual)", m.priceReductions],
       ["Refunds", m.refunds],
       ["Net sales", m.net],
       ["Recorded payments", m.recorded],
       ["Verified payments", m.verified],
       ["Estimated COGS", m.cogs],
-      ["Gross profit (estimate)", m.cogsKnown ? m.grossProfit : "incomplete cost data"],
+      ["Gross profit (estimate)", m.grossProfit ?? "unavailable: incomplete cost data"],
     ]);
 
   return (
@@ -178,9 +179,15 @@ function Reports() {
         />
         <Stat
           label="Gross profit (est.)"
-          value={m.cogsKnown ? fmtTHB(m.grossProfit) : "Incomplete"}
-          hint={m.cogsKnown ? "Net − estimated COGS" : "Some items have no cost price"}
-          tone={m.cogsKnown ? undefined : "warning"}
+          value={m.grossProfit !== undefined ? fmtTHB(m.grossProfit) : "Unavailable"}
+          hint={m.grossProfit !== undefined ? "Net − COGS" : "Some items have no cost price"}
+          tone={m.grossProfit !== undefined ? undefined : "warning"}
+        />
+        <Stat
+          label="Price reductions"
+          value={fmtTHB(m.priceReductions)}
+          hint="Below list price, within each item's minimum"
+          tone={m.priceReductions ? "warning" : undefined}
         />
       </div>
       <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">

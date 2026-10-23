@@ -3,7 +3,14 @@
  * Swap `demoRepository` for a Supabase-backed implementation of `RetailRepository` later.
  * The backend MUST re-validate prices, totals, stock, permissions and idempotency.
  */
-import { cartTotals, cashChange, expectedClosingCash } from "@/lib/calc";
+import {
+  cartTotals,
+  cashChange,
+  discountBreaksMinimum,
+  expectedClosingCash,
+  productPricingError,
+  unitPriceError,
+} from "@/lib/calc";
 import { dayKey, variantLabel } from "@/lib/format";
 import type {
   ApprovalRequest,
@@ -180,9 +187,12 @@ export const repo: RetailRepository = {
     if (getState().role !== "owner")
       return { ok: false, error: "Only the owner can edit products." };
     if (!p.name.trim() || !p.sku.trim()) return { ok: false, error: "Name and SKU are required." };
-    if (!(p.price > 0)) return { ok: false, error: "Selling price must be greater than zero." };
+    const pricing = productPricingError(p);
+    if (pricing) return { ok: false, error: pricing };
     const dup = getState().products.find((x) => x.sku === p.sku && x.id !== p.id);
     if (dup) return { ok: false, error: `SKU already used by ${dup.name}.` };
+    // Store a copy so the caller cannot change prices after validation.
+    p = structuredClone(p);
     mutate((d) => {
       const i = d.products.findIndex((x) => x.id === p.id);
       if (i >= 0) {
@@ -193,6 +203,13 @@ export const repo: RetailRepository = {
             "product.price_changed",
             p.sku,
             `Selling price changed ฿${prev.price} → ฿${p.price}.`,
+          );
+        if (prev.minimumSellingPrice !== p.minimumSellingPrice)
+          log(
+            d,
+            "product.minimum_price_changed",
+            p.sku,
+            `Minimum selling price changed ฿${prev.minimumSellingPrice} → ฿${p.minimumSellingPrice}.`,
           );
         // stock is only changed via movements; keep recorded stock
         p.variants = p.variants.map((v) => {
@@ -227,6 +244,8 @@ export const repo: RetailRepository = {
   },
   async archiveProduct(id, active) {
     await wait();
+    if (getState().role !== "owner")
+      return { ok: false, error: "Only the owner can archive products." };
     mutate((d) => {
       const p = d.products.find((x) => x.id === id);
       if (!p) return;
@@ -250,16 +269,49 @@ export const repo: RetailRepository = {
     const session = s.cashSessions.find((c) => c.status === "open");
     if (req.paymentMethod === "cash" && !session)
       return { ok: false, error: "Open a cash session before taking cash." };
+    if (!Number.isFinite(req.discountPct) || req.discountPct < 0 || req.discountPct > 100)
+      return { ok: false, error: "Invalid discount." };
+    if (req.discountPct > 0 && s.role !== "owner")
+      return { ok: false, error: "Discounts need owner approval." };
     const items: SaleItem[] = [];
+    const qtyByVariant = new Map<string, number>();
     for (const l of req.lines) {
       const f = findVariant(s, l.variantId);
       if (!f || !f.product.active) return { ok: false, error: "An item is no longer available." };
       if (!Number.isInteger(l.qty) || l.qty < 1) return { ok: false, error: "Invalid quantity." };
-      if (l.qty > f.variant.stock)
+      // Stock is checked against the total of all lines for the same variant.
+      const wanted = (qtyByVariant.get(f.variant.id) ?? 0) + l.qty;
+      qtyByVariant.set(f.variant.id, wanted);
+      if (wanted > f.variant.stock)
         return {
           ok: false,
           error: `Only ${f.variant.stock} left of ${f.product.name} (${variantLabel(f.variant)}).`,
         };
+      // Pricing rule comes from stored product data, never from the request.
+      const { price: listPrice, minimumSellingPrice } = f.product;
+      const unitPrice = l.unitPrice ?? listPrice;
+      const belowMinimum =
+        unitPrice < minimumSellingPrice ||
+        discountBreaksMinimum(unitPrice, req.discountPct, minimumSellingPrice);
+      const priceError =
+        unitPriceError(unitPrice, { listPrice, minimumSellingPrice }) ??
+        (belowMinimum
+          ? `A ${req.discountPct}% discount would take ${f.product.name} below its minimum selling price of ฿${minimumSellingPrice}. Sales below the minimum are not permitted.`
+          : undefined);
+      if (priceError) {
+        // Below-minimum attempts are audited so the owner can see them; nothing else is recorded.
+        if (belowMinimum)
+          mutate((d) =>
+            log(
+              d,
+              "sale.blocked_below_minimum",
+              f.variant.sku,
+              `Checkout blocked: ฿${unitPrice}${req.discountPct ? ` less ${req.discountPct}%` : ""} is below the ฿${minimumSellingPrice} minimum.`,
+              "failure",
+            ),
+          );
+        return { ok: false, error: priceError };
+      }
       items.push({
         productId: f.product.id,
         variantId: f.variant.id,
@@ -267,12 +319,13 @@ export const repo: RetailRepository = {
         variantLabel: variantLabel(f.variant),
         sku: f.variant.sku,
         qty: l.qty,
-        unitPrice: f.product.price,
+        unitPrice,
+        listPrice,
+        minimumPrice: minimumSellingPrice,
+        lineDiscount: (listPrice - unitPrice) * l.qty,
         unitCost: f.product.cost,
       });
     }
-    if (req.discountPct > 0 && s.role !== "owner")
-      return { ok: false, error: "Discounts need owner approval." };
     const t = cartTotals(items, req.discountPct);
     let change: number | undefined;
     if (req.paymentMethod === "cash") {

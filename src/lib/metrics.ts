@@ -5,11 +5,13 @@ import type { Sale } from "@/types/domain";
 /**
  * Metric definitions (shared by dashboard and reports):
  * - Gross sales: sum of item subtotals of non-voided sales.
- * - Discounts: discounts given on those sales.
+ * - Discounts: cart-level discounts given on those sales.
+ * - Price reductions: list price minus actual unit price on sale lines (already excluded from gross).
  * - Refunds: approved refund amounts dated in the period.
  * - Net sales: gross − discounts − refunds.
  * - Recorded payments: payments recorded at checkout (not proof of funds).
  * - Verified payments: QR payments manually verified by the owner + cash in balanced/resolved sessions.
+ * - Gross profit: net − COGS from cost snapshots; undefined (unavailable) if any line lacks a cost.
  */
 export function periodMetrics(
   s: Pick<DemoState, "sales" | "payments" | "refunds" | "cashSessions">,
@@ -44,14 +46,17 @@ export function periodMetrics(
   const pendingQr = pays
     .filter((p) => p.method === "qr" && p.status === "pending")
     .reduce((a, p) => a + p.recorded, 0);
-  const cogsKnown = sales.flatMap((x) => x.items).every((i) => i.unitCost !== undefined);
-  const cogs = sales.flatMap((x) => x.items).reduce((a, i) => a + (i.unitCost ?? 0) * i.qty, 0);
+  const items = sales.flatMap((x) => x.items);
+  const cogsKnown = items.every((i) => i.unitCost !== undefined);
+  const cogs = items.reduce((a, i) => a + (i.unitCost ?? 0) * i.qty, 0);
+  const priceReductions = items.reduce((a, i) => a + i.lineDiscount, 0);
   const net = gross - discounts - refunds;
   return {
     sales,
     count: sales.length,
     gross,
     discounts,
+    priceReductions,
     refunds,
     net,
     recorded: cash + qr,
@@ -62,7 +67,7 @@ export function periodMetrics(
     avg: sales.length ? Math.round((gross - discounts) / sales.length) : 0,
     cogs,
     cogsKnown,
-    grossProfit: net - cogs,
+    grossProfit: cogsKnown ? net - cogs : undefined,
   };
 }
 

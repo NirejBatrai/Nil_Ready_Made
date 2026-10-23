@@ -34,8 +34,14 @@ export interface Product {
   sku: string;
   category: Category;
   description: string;
+  /** Normal listed selling price. */
   price: number;
-  /** Owner-only field. */
+  /**
+   * Lowest permitted unit selling price (inclusive). Never above `price`.
+   * Products created before this rule existed are migrated to `price` (no reductions allowed).
+   */
+  minimumSellingPrice: number;
+  /** Purchase cost. Owner-only field. */
   cost?: number | undefined;
   barcode?: string | undefined;
   imageUrl?: string | undefined;
@@ -55,8 +61,14 @@ export interface SaleItem {
   variantLabel: string;
   sku: string;
   qty: number;
-  /** Price snapshot at time of sale. */
+  /** Actual unit selling price charged (snapshot). */
   unitPrice: number;
+  /** Normal price at time of sale (snapshot). */
+  listPrice: number;
+  /** Minimum selling price at time of sale; unknown for sales recorded before the rule. */
+  minimumPrice?: number | undefined;
+  /** (listPrice − unitPrice) × qty. Excludes any cart-level discount on the sale. */
+  lineDiscount: number;
   /** Cost snapshot, when known. */
   unitCost?: number | undefined;
 }
@@ -232,6 +244,8 @@ export interface ShopSettings {
 export interface CartLine {
   variantId: string;
   qty: number;
+  /** Requested actual unit price; defaults to the product's normal price. Re-validated server-side. */
+  unitPrice?: number | undefined;
 }
 
 export interface CreateSaleRequest {
