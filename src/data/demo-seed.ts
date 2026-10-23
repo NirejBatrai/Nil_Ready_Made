@@ -29,6 +29,9 @@ const base = Date.parse(`${DEMO_TODAY}T00:00:00+07:00`);
 const at = (dayOffset: number, h: number, m = 0) =>
   new Date(base + dayOffset * DAY + (h * 60 + m) * 60_000).toISOString();
 
+/** Who works the till on a given day offset. Single source for sales and drawer ownership. */
+const staffOn = (dayOffset: number) => (dayOffset % 3 === 0 ? "emp_kanya" : "emp_mali");
+
 function rng(seed: number) {
   return () => {
     seed |= 0;
@@ -38,7 +41,8 @@ function rng(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-const r = rng(20261022);
+// Re-seeded on every createSeed() call so "Reset demo" restores identical fixtures.
+let r = rng(20261022);
 const pick = <T>(a: T[]) => nth(a, Math.floor(r() * a.length));
 const int = (min: number, max: number) => min + Math.floor(r() * (max - min + 1));
 
@@ -352,6 +356,7 @@ export interface DemoSeed {
 }
 
 export function createSeed(): DemoSeed {
+  r = rng(20261022);
   const products = buildProducts();
   const variants = products.flatMap((p) => p.variants.map((v) => ({ p, v })));
   const sales: Sale[] = [];
@@ -363,7 +368,7 @@ export function createSeed(): DemoSeed {
   let receipt = 1;
 
   for (let d = -13; d <= 0; d++) {
-    const staff = d % 3 === 0 ? "emp_kanya" : "emp_mali";
+    const staff = staffOn(d);
     const sessionId = `cs_${d + 100}`;
     const count = d === 0 ? 9 : int(6, 13);
     for (let k = 0; k < count; k++) {
@@ -388,7 +393,9 @@ export function createSeed(): DemoSeed {
       const subtotal = items.reduce((s, i) => s + i.qty * i.unitPrice, 0);
       const discount = r() < 0.08 ? Math.round(subtotal * 0.05) : 0;
       const total = subtotal - discount;
-      const method = r() < 0.55 ? "cash" : "qr";
+      const roll = r();
+      // Today's late sales alternate QR/cash so the demo always has QR payments awaiting verification.
+      const method = d === 0 && k > 4 ? (k % 2 ? "qr" : "cash") : roll < 0.55 ? "cash" : "qr";
       const id = `sale_${receipt}`;
       const no = `LX-${(d + 100).toString()}-${String(receipt).padStart(4, "0")}`;
       const received =
@@ -532,7 +539,7 @@ export function createSeed(): DemoSeed {
   // Cash sessions
   for (let d = -13; d <= 0; d++) {
     const id = `cs_${d + 100}`;
-    const employeeId = d % 3 === 0 ? "emp_kanya" : "emp_mali";
+    const employeeId = staffOn(d);
     const cashSales = sales
       .filter((s) => s.cashSessionId === id && s.status !== "voided")
       .reduce((a, s) => a + s.total, 0);
@@ -579,10 +586,35 @@ export function createSeed(): DemoSeed {
             ? "Customer left ฿20 extra and did not wait for change."
             : undefined;
       s.ownerNote = d === -6 ? "Accepted. Logged as overage." : undefined;
+      audit.push({
+        id: `au_cs_close_${id}`,
+        at: s.closedAt,
+        actorId: s.employeeId,
+        action: "cash_session.closed",
+        target: id,
+        result: "success",
+        summary:
+          diff === 0
+            ? "Closed balanced."
+            : `Closed with ${diff > 0 ? "+" : "−"}฿${Math.abs(diff)} discrepancy; explanation provided.`,
+      });
     }
+    audit.push({
+      id: `au_cs_open_${id}`,
+      at: s.openedAt,
+      actorId: s.employeeId,
+      action: "cash_session.opened",
+      target: id,
+      result: "success",
+      summary: `Opened with ฿${s.openingFloat.toLocaleString("en-US")} float.`,
+    });
     cashSessions.push(s);
   }
 
+  const shortSession = must(
+    cashSessions.find((c) => c.id === "cs_97"),
+    "discrepancy session",
+  );
   const approvals: ApprovalRequest[] = [
     {
       id: "apr_1",
@@ -637,11 +669,11 @@ export function createSeed(): DemoSeed {
       id: "apr_5",
       number: "REQ-1005",
       type: "cash_discrepancy",
-      requesterId: "emp_mali",
-      createdAt: at(-3, 20, 12),
-      cashSessionId: "cs_97",
+      requesterId: shortSession.employeeId,
+      createdAt: must(shortSession.closedAt, "discrepancy close time"),
+      cashSessionId: shortSession.id,
       amount: -120,
-      reason: "Busy afternoon; may have given change for ฿500 instead of ฿380 on one sale.",
+      reason: must(shortSession.explanation, "discrepancy explanation"),
       status: "pending",
     },
     {
@@ -701,24 +733,6 @@ export function createSeed(): DemoSeed {
       target: nth(variants, 12).v.sku,
       result: "pending",
       summary: "Requested −1 (damaged).",
-    },
-    {
-      id: "au_x6",
-      at: at(-3, 20, 12),
-      actorId: "emp_mali",
-      action: "cash_session.closed",
-      target: "cs_97",
-      result: "success",
-      summary: "Closed with −฿120 discrepancy; explanation provided.",
-    },
-    {
-      id: "au_x7",
-      at: at(0, 9, 50),
-      actorId: "emp_mali",
-      action: "cash_session.opened",
-      target: "cs_100",
-      result: "success",
-      summary: "Opened with ฿2,000 float.",
     },
     {
       id: "au_x8",
@@ -824,7 +838,13 @@ export function createSeed(): DemoSeed {
     refunds,
     approvals,
     audit: audit.sort((a, b) => b.at.localeCompare(a.at)),
-    employees: EMPLOYEES,
+    // Last activity can never precede the employee's own latest recorded action.
+    employees: EMPLOYEES.map((e) => {
+      const latest = audit
+        .filter((a) => a.actorId === e.id)
+        .reduce((m, a) => (a.at > m ? a.at : m), e.lastActiveAt);
+      return { ...e, lastActiveAt: latest };
+    }),
     notifications,
     stockCounts: [],
     settings: {

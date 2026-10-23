@@ -114,7 +114,11 @@ function Dashboard() {
         <Stat
           label="QR / transfer recorded"
           value={fmtTHB(m.qr)}
-          hint={m.pendingQr ? `${fmtTHB(m.pendingQr)} awaiting verification` : "All verified"}
+          hint={
+            m.pendingQr
+              ? `${fmtTHB(m.pendingQr)} awaiting verification`
+              : "None awaiting verification"
+          }
           to="/payments"
           tone={m.pendingQr ? "warning" : undefined}
         />
@@ -189,6 +193,7 @@ function Dashboard() {
                 />
                 <Tooltip {...tip} formatter={(v: number) => fmtTHB(v)} />
                 <Area
+                  isAnimationActive={false}
                   dataKey="net"
                   name="Net sales"
                   stroke="var(--chart-1)"
@@ -198,10 +203,12 @@ function Dashboard() {
               </AreaChart>
             </ResponsiveContainer>
           </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">Click a day to inspect it.</p>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Net = gross − discounts − refunds dated that day. Click a day to inspect it.
+          </p>
         </Panel>
 
-        <Panel title="Payment methods">
+        <Panel title="Recorded payments">
           <div className="h-48">
             <ResponsiveContainer>
               <BarChart data={series.slice(-7)} margin={{ left: -10 }}>
@@ -221,8 +228,15 @@ function Dashboard() {
                   tickFormatter={(v) => `${Math.round(v / 1000)}k`}
                 />
                 <Tooltip {...tip} formatter={(v: number) => fmtTHB(v)} />
-                <Bar dataKey="cash" name="Cash" stackId="a" fill="var(--chart-1)" />
                 <Bar
+                  isAnimationActive={false}
+                  dataKey="cash"
+                  name="Cash"
+                  stackId="a"
+                  fill="var(--chart-1)"
+                />
+                <Bar
+                  isAnimationActive={false}
                   dataKey="qr"
                   name="QR / transfer"
                   stackId="a"

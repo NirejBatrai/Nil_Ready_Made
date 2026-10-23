@@ -4,7 +4,7 @@
  * The backend MUST re-validate prices, totals, stock, permissions and idempotency.
  */
 import { cartTotals, cashChange, expectedClosingCash } from "@/lib/calc";
-import { variantLabel } from "@/lib/format";
+import { dayKey, variantLabel } from "@/lib/format";
 import type {
   ApprovalRequest,
   ApprovalType,
@@ -284,7 +284,8 @@ export const repo: RetailRepository = {
     let sale!: Sale;
     mutate((d) => {
       const n = d.counters.receipt++;
-      const today = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+      // Receipt date follows the shop's reporting day (Asia/Bangkok), not UTC.
+      const today = dayKey(new Date()).slice(2).replace(/-/g, "");
       sale = {
         id: uid("sale"),
         receiptNo: `LX-${today}-${String(n).padStart(4, "0")}`,

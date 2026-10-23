@@ -66,18 +66,25 @@ export function periodMetrics(
   };
 }
 
-export function dailySeries(s: Pick<DemoState, "sales" | "refunds">, days: string[]) {
+/**
+ * One point per Bangkok calendar day, computed with the same definitions as periodMetrics
+ * so chart points always equal the dashboard tiles for that day.
+ * `cash`/`qr` are recorded payments; `net` additionally subtracts refunds dated that day.
+ */
+export function dailySeries(
+  s: Pick<DemoState, "sales" | "payments" | "refunds" | "cashSessions">,
+  days: string[],
+) {
   return days.map((d) => {
-    const sales = s.sales.filter((x) => dayKey(x.createdAt) === d && x.status !== "voided");
+    const m = periodMetrics(s, d, d);
     return {
       day: d.slice(5),
       date: d,
-      net:
-        sales.reduce((a, x) => a + x.total, 0) -
-        s.refunds.filter((r) => dayKey(r.at) === d).reduce((a, r) => a + r.amount, 0),
-      cash: sales.filter((x) => x.paymentMethod === "cash").reduce((a, x) => a + x.total, 0),
-      qr: sales.filter((x) => x.paymentMethod === "qr").reduce((a, x) => a + x.total, 0),
-      count: sales.length,
+      net: m.net,
+      cash: m.cash,
+      qr: m.qr,
+      refunds: m.refunds,
+      count: m.count,
     };
   });
 }
