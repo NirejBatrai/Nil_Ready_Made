@@ -576,6 +576,7 @@ export function createSeed(): DemoSeed {
       });
       const diff = d === -3 ? -120 : d === -6 ? 20 : 0;
       s.closedAt = at(d, 20, 10);
+      s.closedBy = employeeId;
       s.expectedAtClose = expected;
       s.countedCash = expected + diff;
       s.status = diff === 0 ? "balanced" : d === -3 ? "pending_review" : "resolved";
@@ -589,7 +590,7 @@ export function createSeed(): DemoSeed {
       audit.push({
         id: `au_cs_close_${id}`,
         at: s.closedAt,
-        actorId: s.employeeId,
+        actorId: employeeId,
         action: "cash_session.closed",
         target: id,
         result: "success",
@@ -669,7 +670,7 @@ export function createSeed(): DemoSeed {
       id: "apr_5",
       number: "REQ-1005",
       type: "cash_discrepancy",
-      requesterId: shortSession.employeeId,
+      requesterId: must(shortSession.closedBy, "discrepancy closer"),
       createdAt: must(shortSession.closedAt, "discrepancy close time"),
       cashSessionId: shortSession.id,
       amount: -120,

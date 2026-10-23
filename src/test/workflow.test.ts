@@ -226,6 +226,8 @@ describe("cash drawer", () => {
     const closed = must(getState().cashSessions.find((c) => c.id === cs.id));
     expect(closed).toMatchObject({
       status: "pending_review",
+      employeeId: cs.employeeId,
+      closedBy: "emp_mali",
       expectedAtClose: expected,
       countedCash: expected - 100,
     });
@@ -267,5 +269,34 @@ describe("reset demo", () => {
     expect(data).toEqual(createSeed());
     expect({ role, currentUserId }).toEqual({ role: "owner", currentUserId: "emp_owner" });
     expect(openSession().id).toBe(cs.id);
+  });
+});
+
+describe("stock adjustments", () => {
+  it("an approved increase is recorded as a correction even if the reason mentions damage", async () => {
+    repo.setDemoRole("employee");
+    const v = inStock();
+    const req = ok(await repo.requestStockAdjustment(v.id, 1, "Damaged item: found in back room"));
+    repo.setDemoRole("owner");
+    ok(await repo.decideApproval(req.id, "approved", "ok"));
+    const s = getState();
+    expect(must(findVariant(s, v.id)).variant.stock).toBe(v.stock + 1);
+    expect(s.movements.filter((m) => m.reference === req.number)).toEqual([
+      expect.objectContaining({ type: "approved_correction", qty: 1 }),
+    ]);
+  });
+
+  it("an approved damage write-off reduces stock as a damaged movement", async () => {
+    repo.setDemoRole("employee");
+    const v = inStock();
+    const req = ok(await repo.requestStockAdjustment(v.id, -1, "Damaged item: torn"));
+    expect(must(findVariant(getState(), v.id)).variant.stock).toBe(v.stock);
+    repo.setDemoRole("owner");
+    ok(await repo.decideApproval(req.id, "approved", "ok"));
+    const s = getState();
+    expect(must(findVariant(s, v.id)).variant.stock).toBe(v.stock - 1);
+    expect(s.movements.filter((m) => m.reference === req.number)).toEqual([
+      expect.objectContaining({ type: "damaged", qty: -1 }),
+    ]);
   });
 });

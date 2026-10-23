@@ -322,7 +322,7 @@ function Pos() {
                 key={c}
                 onClick={() => setCat(c)}
                 className={cn(
-                  "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  "shrink-0 rounded-full border px-3 py-2 text-xs font-medium transition-colors sm:py-1",
                   cat === c
                     ? "border-primary bg-primary text-primary-foreground"
                     : "bg-card text-muted-foreground hover:text-foreground",
@@ -403,17 +403,17 @@ function Pos() {
         </div>
       )}
       {count === 0 && (
-        <nav className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t bg-card py-2 text-[11px] text-muted-foreground lg:hidden">
-          <Link to="/sales" className="px-3">
+        <nav className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t bg-card py-0.5 text-[11px] text-muted-foreground lg:hidden">
+          <Link to="/sales" className="px-3 py-3">
             Sales
           </Link>
-          <Link to="/reconciliation" className="px-3">
+          <Link to="/reconciliation" className="px-3 py-3">
             Cash drawer
           </Link>
-          <Link to="/inventory" className="px-3">
+          <Link to="/inventory" className="px-3 py-3">
             Stock
           </Link>
-          <Link to="/approvals" className="px-3">
+          <Link to="/approvals" className="px-3 py-3">
             Requests
           </Link>
         </nav>
@@ -560,7 +560,7 @@ function CheckoutDialog({
         }
       }}
     >
-      <DialogContent className="max-h-[95vh] overflow-y-auto sm:max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{confirm ? "Confirm sale" : "Payment"}</DialogTitle>
           <DialogDescription className="num">

@@ -95,7 +95,7 @@ function Inventory() {
         actions={<SampleTag />}
       />
       <Tabs defaultValue="stock">
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 h-auto max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="stock">Stock</TabsTrigger>
           <TabsTrigger value="count">Stock count</TabsTrigger>
           <TabsTrigger value="requests">Adjustment requests</TabsTrigger>
@@ -133,70 +133,115 @@ function Inventory() {
             {rows.length === 0 ? (
               <EmptyState title="No stock lines match" />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead className="border-b bg-muted/50 text-left text-xs text-muted-foreground">
-                    <tr>
-                      <th className="px-4 py-2 font-medium">Product / variant</th>
-                      <th className="px-2 font-medium">SKU</th>
-                      <th className="px-2 text-right font-medium">Opening</th>
-                      <th className="px-2 text-right font-medium">Recorded</th>
-                      <th className="px-2 text-right font-medium">Threshold</th>
-                      <th className="px-2 font-medium">Last movement</th>
-                      <th className="px-2 font-medium">Status</th>
-                      <th className="px-4 text-right font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {rows.map(({ p, v, last, st }) => (
-                      <tr key={v.id} className="hover:bg-muted/40">
-                        <td className="px-4 py-2">
-                          <span className="font-medium">{p.name}</span>{" "}
-                          <span className="text-xs text-muted-foreground">{variantLabel(v)}</span>
-                        </td>
-                        <td className="px-2 font-mono text-[11px] text-muted-foreground">
-                          {v.sku}
-                        </td>
-                        <td className="num px-2 text-right">{v.openingStock}</td>
-                        <td className="num px-2 text-right font-medium">{v.stock}</td>
-                        <td className="num px-2 text-right text-muted-foreground">
-                          {p.lowStockThreshold}
-                        </td>
-                        <td className="num px-2 text-xs text-muted-foreground">
-                          {last ? fmtDateTime(last) : "—"}
-                        </td>
-                        <td className="px-2">
-                          {st === "out" ? (
-                            <StatusBadge tone="danger">Out</StatusBadge>
-                          ) : st === "low" ? (
-                            <StatusBadge tone="warning">Low</StatusBadge>
-                          ) : (
-                            <StatusBadge tone="success">OK</StatusBadge>
-                          )}
-                        </td>
-                        <td className="px-4 text-right">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Movement history"
-                            onClick={() => setHistory(v.id)}
-                          >
-                            <History />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Request adjustment"
-                            onClick={() => setAdjust(v.id)}
-                          >
-                            <SlidersHorizontal />
-                          </Button>
-                        </td>
+              <>
+                <ul className="divide-y sm:hidden">
+                  {rows.map(({ p, v, last, st }) => (
+                    <li key={v.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium">{p.name}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {variantLabel(v)} · <span className="font-mono">{v.sku}</span>
+                        </div>
+                        <div className="num mt-0.5 text-xs text-muted-foreground">
+                          Min {p.lowStockThreshold} · {last ? fmtDateTime(last) : "No movements"}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="num text-base font-semibold">{v.stock}</div>
+                        <StatusBadge
+                          tone={st === "out" ? "danger" : st === "low" ? "warning" : "success"}
+                        >
+                          {st === "out" ? "Out" : st === "low" ? "Low" : "OK"}
+                        </StatusBadge>
+                      </div>
+                      <div className="flex">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-11"
+                          aria-label="Movement history"
+                          onClick={() => setHistory(v.id)}
+                        >
+                          <History />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-11"
+                          aria-label="Request adjustment"
+                          onClick={() => setAdjust(v.id)}
+                        >
+                          <SlidersHorizontal />
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <div className="hidden overflow-x-auto sm:block">
+                  <table className="w-full min-w-[720px] text-sm">
+                    <thead className="border-b bg-muted/50 text-left text-xs text-muted-foreground">
+                      <tr>
+                        <th className="px-4 py-2 font-medium">Product / variant</th>
+                        <th className="px-2 font-medium">SKU</th>
+                        <th className="px-2 text-right font-medium">Opening</th>
+                        <th className="px-2 text-right font-medium">Recorded</th>
+                        <th className="px-2 text-right font-medium">Threshold</th>
+                        <th className="px-2 font-medium">Last movement</th>
+                        <th className="px-2 font-medium">Status</th>
+                        <th className="px-4 text-right font-medium">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y">
+                      {rows.map(({ p, v, last, st }) => (
+                        <tr key={v.id} className="hover:bg-muted/40">
+                          <td className="px-4 py-2">
+                            <span className="font-medium">{p.name}</span>{" "}
+                            <span className="text-xs text-muted-foreground">{variantLabel(v)}</span>
+                          </td>
+                          <td className="px-2 font-mono text-[11px] text-muted-foreground">
+                            {v.sku}
+                          </td>
+                          <td className="num px-2 text-right">{v.openingStock}</td>
+                          <td className="num px-2 text-right font-medium">{v.stock}</td>
+                          <td className="num px-2 text-right text-muted-foreground">
+                            {p.lowStockThreshold}
+                          </td>
+                          <td className="num px-2 text-xs text-muted-foreground">
+                            {last ? fmtDateTime(last) : "—"}
+                          </td>
+                          <td className="px-2">
+                            {st === "out" ? (
+                              <StatusBadge tone="danger">Out</StatusBadge>
+                            ) : st === "low" ? (
+                              <StatusBadge tone="warning">Low</StatusBadge>
+                            ) : (
+                              <StatusBadge tone="success">OK</StatusBadge>
+                            )}
+                          </td>
+                          <td className="px-4 text-right">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label="Movement history"
+                              onClick={() => setHistory(v.id)}
+                            >
+                              <History />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label="Request adjustment"
+                              onClick={() => setAdjust(v.id)}
+                            >
+                              <SlidersHorizontal />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </TabsContent>
@@ -382,6 +427,11 @@ function AdjustDialog({ variantId, onClose }: { variantId: string | null; onClos
           <Label className="text-xs">Reason</Label>
           <F value={reason} onChange={setReason} label="Reason" opts={REASONS} />
         </div>
+        {reason === "damaged" && diff > 0 && (
+          <p className="text-xs text-destructive" role="alert">
+            A damaged item can only reduce stock. Choose another reason for an increase.
+          </p>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="an" className="text-xs">
             Notes (optional)
@@ -392,7 +442,10 @@ function AdjustDialog({ variantId, onClose }: { variantId: string | null; onClos
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={busy || counted === "" || diff === 0}>
+          <Button
+            onClick={submit}
+            disabled={busy || counted === "" || diff === 0 || (reason === "damaged" && diff > 0)}
+          >
             Submit for approval
           </Button>
         </DialogFooter>

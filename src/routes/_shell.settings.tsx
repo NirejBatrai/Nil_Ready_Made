@@ -248,7 +248,7 @@ function Toggle({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between gap-3 text-sm">
+    <label className="flex min-h-11 items-center justify-between gap-3 text-sm">
       <span>{label}</span>
       <Switch checked={checked} onCheckedChange={onChange} />
     </label>

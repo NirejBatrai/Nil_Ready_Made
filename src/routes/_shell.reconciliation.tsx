@@ -77,7 +77,10 @@ function Reconciliation() {
                   className="flex w-full flex-wrap items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-muted/50"
                 >
                   <span className="w-28 font-medium">{fmtDate(c.openedAt)}</span>
-                  <span className="min-w-0 flex-1 text-muted-foreground">{name(c.employeeId)}</span>
+                  <span className="min-w-0 flex-1 text-muted-foreground">
+                    {name(c.employeeId)}
+                    {c.closedBy && c.closedBy !== c.employeeId ? ` → ${name(c.closedBy)}` : ""}
+                  </span>
                   <span className="num w-28 text-right">Exp. {fmtTHB(f.expected)}</span>
                   <span className="num w-28 text-right">Cnt. {fmtTHB(c.countedCash ?? 0)}</span>
                   <span
@@ -333,7 +336,7 @@ function CloseDialog({
   };
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[95vh] overflow-y-auto sm:max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Close drawer — count cash</DialogTitle>
           <DialogDescription>
@@ -415,8 +418,11 @@ function SessionDetail({ session }: { session: CashSession }) {
       <DialogHeader>
         <DialogTitle>Session {fmtDate(session.openedAt)}</DialogTitle>
         <DialogDescription>
-          {name(session.employeeId)} · {fmtDateTime(session.openedAt)} –{" "}
+          Opened by {name(session.employeeId)} · {fmtDateTime(session.openedAt)} –{" "}
           {session.closedAt ? fmtDateTime(session.closedAt) : "open"}
+          {session.closedBy && session.closedBy !== session.employeeId
+            ? ` · closed by ${name(session.closedBy)}`
+            : ""}
         </DialogDescription>
       </DialogHeader>
       <div className="num space-y-1.5 text-sm">

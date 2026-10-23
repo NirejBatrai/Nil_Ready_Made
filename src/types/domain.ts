@@ -120,12 +120,15 @@ export interface CashMovement {
 
 export interface CashSession {
   id: string;
+  /** Employee who opened the drawer. */
   employeeId: string;
   openedAt: string;
   openingFloat: number;
   openingNotes?: string | undefined;
   cashMovements: CashMovement[];
   closedAt?: string | undefined;
+  /** Employee who counted and closed the drawer; may differ from the opener. */
+  closedBy?: string | undefined;
   /** Snapshot of expected cash at closing; never rewritten. */
   expectedAtClose?: number | undefined;
   countedCash?: number | undefined;

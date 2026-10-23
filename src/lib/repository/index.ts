@@ -427,6 +427,7 @@ export const repo: RetailRepository = {
     mutate((d) => {
       const c = d.cashSessions.find((x) => x.id === id)!;
       c.closedAt = now();
+      c.closedBy = d.currentUserId;
       c.expectedAtClose = f.expected;
       c.countedCash = counted;
       c.denominations = denominations;
@@ -525,7 +526,9 @@ export const repo: RetailRepository = {
         if (r.type === "stock_adjustment" && r.variantId && r.stockDiff) {
           const f = findVariant(d, r.variantId);
           if (f) f.variant.stock = Math.max(0, f.variant.stock + r.stockDiff);
-          const type: MovementType = /damag/i.test(r.reason) ? "damaged" : "approved_correction";
+          // Only a reduction can be a damage write-off; increases are always corrections.
+          const type: MovementType =
+            r.stockDiff < 0 && /damag/i.test(r.reason) ? "damaged" : "approved_correction";
           d.movements.push({
             id: uid("mv"),
             variantId: r.variantId,

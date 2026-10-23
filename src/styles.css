@@ -148,6 +148,16 @@
   color: var(--color-muted-foreground);
 }
 
+/* Phone widths: keep tab controls at a comfortable tap size. */
+@media (max-width: 639px) {
+  [role="tablist"] {
+    height: auto;
+  }
+  [role="tab"] {
+    min-height: 2.5rem;
+  }
+}
+
 @media print {
   body * {
     visibility: hidden;

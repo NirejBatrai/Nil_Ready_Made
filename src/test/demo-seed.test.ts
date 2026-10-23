@@ -27,7 +27,8 @@ describe("demo fixtures", () => {
       expect(events.map((e) => e.action).sort()).toEqual(
         c.closedAt ? ["cash_session.closed", "cash_session.opened"] : ["cash_session.opened"],
       );
-      for (const e of events) expect(e.actorId).toBe(c.employeeId);
+      for (const e of events)
+        expect(e.actorId).toBe(e.action === "cash_session.closed" ? c.closedBy : c.employeeId);
     }
   });
 
@@ -35,7 +36,7 @@ describe("demo fixtures", () => {
     const s = createSeed();
     for (const a of s.approvals.filter((x) => x.type === "cash_discrepancy")) {
       const c = must(s.cashSessions.find((x) => x.id === a.cashSessionId));
-      expect(a.requesterId).toBe(c.employeeId);
+      expect(a.requesterId).toBe(c.closedBy);
       expect(a.amount).toBe(must(c.countedCash) - must(c.expectedAtClose));
     }
   });

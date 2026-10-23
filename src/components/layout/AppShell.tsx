@@ -64,7 +64,7 @@ function RoleSwitch() {
           onClick={() => repo.setDemoRole(r)}
           aria-pressed={role === r}
           className={cn(
-            "rounded px-2.5 py-1 font-medium capitalize transition-colors",
+            "rounded px-2.5 py-2 font-medium capitalize transition-colors sm:py-1",
             role === r
               ? "bg-card text-foreground shadow-card"
               : "text-muted-foreground hover:text-foreground",
@@ -244,7 +244,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="bg-warning-soft px-4 py-1.5 text-center text-[11px] text-warning">
           Demo mode — fictional data stored only in this browser. Roles, payments and security are
           simulated.{" "}
-          <button className="font-semibold underline" onClick={() => resetDemoState()}>
+          <button
+            className="relative font-semibold underline after:absolute after:-inset-3 after:content-['']"
+            onClick={() => {
+              if (window.confirm("Reset demo? All demo changes in this browser will be lost."))
+                resetDemoState();
+            }}
+          >
             Reset demo
           </button>
         </div>
