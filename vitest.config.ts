@@ -4,6 +4,8 @@ import path from "node:path";
 
 export default defineConfig({
   plugins: [react()],
+  // Never load .env files into the test runner; tests use only isolated, explicit settings.
+  envDir: false,
   test: {
     environment: "jsdom",
     globals: true,

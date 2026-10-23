@@ -9,8 +9,11 @@
  * client bundle, and the database modules are only loaded on the server via the dynamic import.
  */
 import { createServerFn } from "@tanstack/react-start";
+import { safeErrors } from "./server-errors";
 
-export const getDatabaseHealth = createServerFn({ method: "GET" }).handler(async () => {
-  const { checkDatabaseHealth } = await import("@/server/health.server");
-  return checkDatabaseHealth();
-});
+export const getDatabaseHealth = createServerFn({ method: "GET" })
+  .middleware([safeErrors])
+  .handler(async () => {
+    const { checkDatabaseHealth } = await import("@/server/health.server");
+    return checkDatabaseHealth();
+  });

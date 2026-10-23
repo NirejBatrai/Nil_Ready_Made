@@ -264,4 +264,9 @@ describe("browser bundle boundary", () => {
     expect(src).not.toMatch(/^import .*(mongoose|mongodb|\.server)/m);
     expect(src).toMatch(/await import\("@\/server\/health\.server"\)/);
   });
+
+  it("the health server function sanitizes errors with safeErrors", () => {
+    const src = readFileSync("src/lib/db-health.ts", "utf8");
+    expect(src).toMatch(/\.middleware\(\[safeErrors\]\)/);
+  });
 });
