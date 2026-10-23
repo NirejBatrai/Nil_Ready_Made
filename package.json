@@ -12,7 +12,10 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:db": "RUN_DB_INTEGRATION=1 vitest run src/test/db.integration.test.ts"
+    "test:db": "RUN_DB_INTEGRATION=1 vitest run src/test/db.integration.test.ts",
+    "test:e2e": "RUN_AUTH_E2E=1 vitest run src/test/auth.e2e.test.ts",
+    "auth:create-owner": "bun scripts/create-owner.ts",
+    "db:setup-indexes": "bun scripts/setup-indexes.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"
@@ -88,7 +91,9 @@
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
     "jsdom": "^20.0.3",
+    "mongodb-memory-server": "11.3.0",
     "nitro": "3.0.260603-beta",
+    "playwright-core": "1.64.1",
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",

@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, ShieldAlert, ShoppingBag, LayoutDashboard } from "lucide-react";
 import { repo } from "@/lib/repository";
 import type { Role } from "@/types/domain";
@@ -77,6 +77,18 @@ function Index() {
             </button>
           ))}
         </div>
+        <p className="mt-4 text-center text-sm">
+          <Link
+            to="/login"
+            data-testid="owner-signin-link"
+            className="font-medium text-primary hover:underline"
+          >
+            Owner sign-in (real account)
+          </Link>
+          <span className="block text-xs text-muted-foreground">
+            Separate from the simulated demo accounts above.
+          </span>
+        </p>
         <div className="mt-6 flex gap-2 rounded-md bg-warning-soft p-3 text-xs text-warning">
           <ShieldAlert className="size-4 shrink-0" />
           <p>

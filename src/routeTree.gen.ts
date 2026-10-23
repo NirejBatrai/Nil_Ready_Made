@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ShellRouteImport } from './routes/_shell'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as ShellApprovalsRouteImport } from './routes/_shell.approvals'
 import { Route as ShellAuditRouteImport } from './routes/_shell.audit'
 import { Route as ShellDashboardRouteImport } from './routes/_shell.dashboard'
@@ -23,7 +24,10 @@ import { Route as ShellReconciliationRouteImport } from './routes/_shell.reconci
 import { Route as ShellReportsRouteImport } from './routes/_shell.reports'
 import { Route as ShellSalesRouteImport } from './routes/_shell.sales'
 import { Route as ShellSettingsRouteImport } from './routes/_shell.settings'
+import { Route as DevAuthRouteImport } from './routes/dev.auth'
 import { Route as DevDbHealthRouteImport } from './routes/dev.db-health'
+import { Route as OwnerProductsRouteImport } from './routes/owner.products'
+import { Route as OwnerProductsNewRouteImport } from './routes/owner.products_.new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -32,6 +36,11 @@ const IndexRoute = IndexRouteImport.update({
 } as any)
 const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ShellApprovalsRoute = ShellApprovalsRouteImport.update({
@@ -94,14 +103,30 @@ const ShellSettingsRoute = ShellSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => ShellRoute,
 } as any)
+const DevAuthRoute = DevAuthRouteImport.update({
+  id: '/dev/auth',
+  path: '/dev/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DevDbHealthRoute = DevDbHealthRouteImport.update({
   id: '/dev/db-health',
   path: '/dev/db-health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OwnerProductsRoute = OwnerProductsRouteImport.update({
+  id: '/owner/products',
+  path: '/owner/products',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerProductsNewRoute = OwnerProductsNewRouteImport.update({
+  id: '/owner/products_/new',
+  path: '/owner/products/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/approvals': typeof ShellApprovalsRoute
   '/audit': typeof ShellAuditRoute
   '/dashboard': typeof ShellDashboardRoute
@@ -114,10 +139,14 @@ export interface FileRoutesByFullPath {
   '/reports': typeof ShellReportsRoute
   '/sales': typeof ShellSalesRoute
   '/settings': typeof ShellSettingsRoute
+  '/dev/auth': typeof DevAuthRoute
   '/dev/db-health': typeof DevDbHealthRoute
+  '/owner/products': typeof OwnerProductsRoute
+  '/owner/products/new': typeof OwnerProductsNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
   '/approvals': typeof ShellApprovalsRoute
   '/audit': typeof ShellAuditRoute
   '/dashboard': typeof ShellDashboardRoute
@@ -130,12 +159,16 @@ export interface FileRoutesByTo {
   '/reports': typeof ShellReportsRoute
   '/sales': typeof ShellSalesRoute
   '/settings': typeof ShellSettingsRoute
+  '/dev/auth': typeof DevAuthRoute
   '/dev/db-health': typeof DevDbHealthRoute
+  '/owner/products': typeof OwnerProductsRoute
+  '/owner/products/new': typeof OwnerProductsNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_shell': typeof ShellRouteWithChildren
+  '/login': typeof LoginRoute
   '/_shell/approvals': typeof ShellApprovalsRoute
   '/_shell/audit': typeof ShellAuditRoute
   '/_shell/dashboard': typeof ShellDashboardRoute
@@ -148,12 +181,16 @@ export interface FileRoutesById {
   '/_shell/reports': typeof ShellReportsRoute
   '/_shell/sales': typeof ShellSalesRoute
   '/_shell/settings': typeof ShellSettingsRoute
+  '/dev/auth': typeof DevAuthRoute
   '/dev/db-health': typeof DevDbHealthRoute
+  '/owner/products': typeof OwnerProductsRoute
+  '/owner/products_/new': typeof OwnerProductsNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/login'
     | '/approvals'
     | '/audit'
     | '/dashboard'
@@ -166,10 +203,14 @@ export interface FileRouteTypes {
     | '/reports'
     | '/sales'
     | '/settings'
+    | '/dev/auth'
     | '/dev/db-health'
+    | '/owner/products'
+    | '/owner/products/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/login'
     | '/approvals'
     | '/audit'
     | '/dashboard'
@@ -182,11 +223,15 @@ export interface FileRouteTypes {
     | '/reports'
     | '/sales'
     | '/settings'
+    | '/dev/auth'
     | '/dev/db-health'
+    | '/owner/products'
+    | '/owner/products/new'
   id:
     | '__root__'
     | '/'
     | '/_shell'
+    | '/login'
     | '/_shell/approvals'
     | '/_shell/audit'
     | '/_shell/dashboard'
@@ -199,13 +244,20 @@ export interface FileRouteTypes {
     | '/_shell/reports'
     | '/_shell/sales'
     | '/_shell/settings'
+    | '/dev/auth'
     | '/dev/db-health'
+    | '/owner/products'
+    | '/owner/products_/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ShellRoute: typeof ShellRouteWithChildren
+  LoginRoute: typeof LoginRoute
+  DevAuthRoute: typeof DevAuthRoute
   DevDbHealthRoute: typeof DevDbHealthRoute
+  OwnerProductsRoute: typeof OwnerProductsRoute
+  OwnerProductsNewRoute: typeof OwnerProductsNewRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -222,6 +274,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof ShellRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_shell/approvals': {
@@ -308,11 +367,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSettingsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/dev/auth': {
+      id: '/dev/auth'
+      path: '/dev/auth'
+      fullPath: '/dev/auth'
+      preLoaderRoute: typeof DevAuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dev/db-health': {
       id: '/dev/db-health'
       path: '/dev/db-health'
       fullPath: '/dev/db-health'
       preLoaderRoute: typeof DevDbHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/products': {
+      id: '/owner/products'
+      path: '/owner/products'
+      fullPath: '/owner/products'
+      preLoaderRoute: typeof OwnerProductsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/products_/new': {
+      id: '/owner/products_/new'
+      path: '/owner/products/new'
+      fullPath: '/owner/products/new'
+      preLoaderRoute: typeof OwnerProductsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -353,7 +433,11 @@ const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ShellRoute: ShellRouteWithChildren,
+  LoginRoute: LoginRoute,
+  DevAuthRoute: DevAuthRoute,
   DevDbHealthRoute: DevDbHealthRoute,
+  OwnerProductsRoute: OwnerProductsRoute,
+  OwnerProductsNewRoute: OwnerProductsNewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
