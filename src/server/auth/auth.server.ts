@@ -6,7 +6,11 @@
  *
  * - Every login failure returns the same message; unknown emails are checked against a dummy
  *   hash so timing does not reveal which emails exist.
- * - At most 5 failed attempts per email and IP within 15 minutes (in memory, per process).
+ * - At most 5 failed attempts per email and address, and 20 per address across all emails, within
+ *   15 minutes (in memory, per process). An address is an IPv4 address or an IPv6 /64. Each
+ *   attempt is counted BEFORE the password is checked, so simultaneous requests cannot all pass.
+ * - Password hashing is bounded per process (see password.server.ts); when it is full, login
+ *   answers "Too many attempts" without hashing.
  * - Sessions last 7 days from login. Only the SHA-256 hash of the token is stored.
  * - The user record is re-read on every request: deactivation takes effect immediately.
  */
@@ -16,10 +20,18 @@ import { z } from "zod";
 import { DatabaseUnavailableError } from "../db.server";
 import { sessionModel } from "../models/session.server";
 import { userModel, type UserRole } from "../models/user.server";
-import { getDummyHash, hashPassword, passwordPolicyError, verifyPassword } from "./password.server";
+import {
+  getDummyHash,
+  hashPassword,
+  PasswordHashingBusyError,
+  passwordPolicyError,
+  verifyPassword,
+} from "./password.server";
 
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const LOGIN_LIMIT = { maxFailures: 5, windowMs: 15 * 60 * 1000 } as const;
+/** Per address across all emails, so one address cannot rotate emails for more password checks. */
+export const LOGIN_ADDRESS_LIMIT = { maxFailures: 20, windowMs: 15 * 60 * 1000 } as const;
 
 export const LOGIN_FAILED = "Email or password is incorrect.";
 export const LOGIN_THROTTLED = "Too many attempts. Try again later.";
@@ -51,34 +63,77 @@ const ownerSchema = z
   .object({ email: emailSchema, name: z.string().trim().min(1).max(120), password: z.string() })
   .strict();
 
-/** In-memory failed-login counter keyed by email + IP. Resets on server restart. */
-export function createLoginLimiter(limit = LOGIN_LIMIT, maxKeys = 10_000) {
-  const failures = new Map<string, number[]>();
+/**
+ * The address an attempt is counted against. One IPv6 user usually controls a whole /64 (2^64
+ * addresses), so IPv6 counts per /64; IPv4-mapped IPv6 counts as its IPv4 address. Anything
+ * unparseable is counted exactly as given.
+ */
+export function loginAddressKey(ip: string): string {
+  const addr = ip.trim().toLowerCase().replace(/%.*$/, "");
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(addr);
+  if (mapped?.[1]) return mapped[1];
+  if (!addr.includes(":")) return addr;
+  const [head = "", tail, ...rest] = addr.split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const zeros = 8 - left.length - right.length;
+  if (rest.length > 0 || zeros < 0) return addr;
+  const groups = tail === undefined ? left : [...left, ...Array<string>(zeros).fill("0"), ...right];
+  const prefix = groups.slice(0, 4);
+  if (prefix.length < 4 || !prefix.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return addr;
+  return `${prefix.map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
+/**
+ * In-memory login-attempt counter. Resets on server restart and is per process: several server
+ * instances would each keep their own count (a shared store would be needed for that; not built).
+ */
+export function createLoginLimiter(
+  limit: { maxFailures: number; windowMs: number } = LOGIN_LIMIT,
+  maxKeys = 10_000,
+) {
+  const attempts = new Map<string, number[]>();
   const recent = (key: string, now: number) =>
-    (failures.get(key) ?? []).filter((t) => now - t < limit.windowMs);
+    (attempts.get(key) ?? []).filter((t) => now - t < limit.windowMs);
   return {
     blocked(key: string, now: number) {
       return recent(key, now).length >= limit.maxFailures;
     },
-    fail(key: string, now: number) {
-      if (!failures.has(key) && failures.size >= maxKeys) {
+    /**
+     * Checks the limit and counts this attempt in one synchronous step, so concurrent requests
+     * cannot all pass before any is counted. Returns false (nothing counted) when blocked.
+     */
+    tryAttempt(key: string, now: number): boolean {
+      const times = recent(key, now);
+      if (times.length >= limit.maxFailures) return false;
+      if (!attempts.has(key) && attempts.size >= maxKeys) {
         // Bound memory: drop entries whose window has passed, else the oldest key.
-        for (const [k, times] of failures)
-          if (times.every((t) => now - t >= limit.windowMs)) failures.delete(k);
-        if (failures.size >= maxKeys) failures.delete(failures.keys().next().value ?? "");
+        for (const [k, t] of attempts)
+          if (t.every((x) => now - x >= limit.windowMs)) attempts.delete(k);
+        if (attempts.size >= maxKeys) attempts.delete(attempts.keys().next().value ?? "");
       }
-      failures.set(key, [...recent(key, now), now]);
+      attempts.set(key, [...times, now]);
+      return true;
+    },
+    /** Un-counts one attempt that never reached a verdict (hashing busy, database down). */
+    cancel(key: string, at: number) {
+      const times = attempts.get(key);
+      const i = times?.indexOf(at) ?? -1;
+      if (!times || i < 0) return;
+      times.splice(i, 1);
+      if (times.length === 0) attempts.delete(key);
     },
     reset(key: string) {
-      failures.delete(key);
+      attempts.delete(key);
     },
   };
 }
 
 export type LoginLimiter = ReturnType<typeof createLoginLimiter>;
 
-/** One limiter per server process. */
+/** One limiter of each kind per server process: per email + address, and per address. */
 export const loginLimiter = createLoginLimiter();
+export const addressLoginLimiter = createLoginLimiter(LOGIN_ADDRESS_LIMIT);
 
 async function db<T>(op: () => Promise<T>): Promise<T> {
   try {
@@ -90,12 +145,15 @@ async function db<T>(op: () => Promise<T>): Promise<T> {
 
 export function createAuthService(
   conn: Connection,
-  deps: { now?: () => Date; limiter?: LoginLimiter } = {},
+  deps: { now?: () => Date; limiter?: LoginLimiter; addressLimiter?: LoginLimiter } = {},
 ) {
   const Users = userModel(conn);
   const Sessions = sessionModel(conn);
   const now = deps.now ?? (() => new Date());
   const limiter = deps.limiter ?? loginLimiter;
+  const addressLimiter = deps.addressLimiter ?? addressLoginLimiter;
+
+  const findUser = (email: string) => db(() => Users.findOne({ email }).select("+passwordHash"));
 
   async function resolveSession(token: unknown): Promise<AuthUser | undefined> {
     if (typeof token !== "string" || !TOKEN_PATTERN.test(token)) return undefined;
@@ -121,20 +179,36 @@ export function createAuthService(
       const parsed = loginSchema.safeParse(input);
       if (!parsed.success) return { ok: false, error: LOGIN_FAILED };
       const { email, password } = parsed.data;
-      const key = `${email}|${ip}`;
+      const address = loginAddressKey(ip);
+      const key = `${email}|${address}`;
       const at = now().getTime();
-      if (limiter.blocked(key, at)) return { ok: false, error: LOGIN_THROTTLED };
-
-      const user = await db(() => Users.findOne({ email }).select("+passwordHash"));
-      const valid = user
-        ? await verifyPassword(password, user.passwordHash)
-        : (await verifyPassword(password, await getDummyHash()), false);
-      if (!user || !valid || !user.active) {
-        limiter.fail(key, at);
-        return { ok: false, error: LOGIN_FAILED };
+      // Counted in both limiters now, before any await, and only if both allow it; a wrong
+      // password leaves both counted.
+      if (!addressLimiter.tryAttempt(address, at)) return { ok: false, error: LOGIN_THROTTLED };
+      if (!limiter.tryAttempt(key, at)) {
+        addressLimiter.cancel(address, at);
+        return { ok: false, error: LOGIN_THROTTLED };
       }
 
+      let user: Awaited<ReturnType<typeof findUser>>;
+      let valid: boolean;
+      try {
+        user = await findUser(email);
+        valid = user
+          ? await verifyPassword(password, user.passwordHash)
+          : (await verifyPassword(password, await getDummyHash()), false);
+      } catch (e) {
+        // No verdict was reached, so this attempt does not count against the owner.
+        limiter.cancel(key, at);
+        addressLimiter.cancel(address, at);
+        if (e instanceof PasswordHashingBusyError) return { ok: false, error: LOGIN_THROTTLED };
+        throw e;
+      }
+      if (!user || !valid || !user.active) return { ok: false, error: LOGIN_FAILED };
+
       limiter.reset(key);
+      // A correct password does not use up the address's allowance (other failures stay counted).
+      addressLimiter.cancel(address, at);
       const token = newToken();
       const expiresAt = new Date(at + SESSION_TTL_MS);
       await db(() => Sessions.create({ _id: hashToken(token), userId: user._id, expiresAt }));

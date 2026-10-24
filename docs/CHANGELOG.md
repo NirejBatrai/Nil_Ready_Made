@@ -4,6 +4,29 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-10-24 — Login hardening (commit `fix: harden login rate limiting and password hashing`, local, not pushed)
+
+- Fixes the audit's High finding: simultaneous wrong passwords all reached scrypt (30 of 30),
+  because the limit was checked before hashing but failures were recorded after.
+- `auth.server.ts`: `tryAttempt` checks and counts in one synchronous step before any `await`;
+  new **per-address limit of 20 attempts / 15 min across all emails** (`LOGIN_ADDRESS_LIMIT`),
+  applied together with the existing 5 per email + address; `loginAddressKey` counts IPv6 per
+  /64 and IPv4-mapped IPv6 as IPv4. Attempts without a verdict (database error, hashing busy)
+  are un-counted in both limits; a correct password does not count against the address.
+- `password.server.ts`: every scrypt derivation goes through `createConcurrencyLimit` (2 at
+  once, 8 waiting, the rest refused with `PasswordHashingBusyError` → "Too many attempts");
+  slots are released in `finally`; a failed dummy-hash creation is not cached.
+- The atomic counting and hashing bound already existed uncommitted at the start of this task
+  (author not recorded); they were reviewed and kept. Added this session: the per-address
+  limit, IPv6 /64 grouping, database-down test, per-test limiter injection, 60 s timeouts for
+  the slow limit tests.
+- Mutation tests (each removed → targeted test failed → restored byte-identical → control passed):
+  atomic per-email counting; hashing bound; slot release on failure; per-email un-count without
+  verdict; per-address limit; atomic per-address counting; address un-count when the per-email
+  limit refuses; address un-count without verdict; correct password not counted; IPv6 /64.
+- Results: `tsc` exit 0; lint 0 errors / 11 warnings; `bun run test` 175 passed, 0 failed,
+  36 skipped; `bun run test:e2e` 34 passed, 0 failed, 1 skipped; nothing left running.
+
 ## 2026-10-24 — Foundation work committed (local, not pushed)
 
 - `ced5535` `feat: add secure owner authentication and product management foundation` (28 files):

@@ -35,7 +35,7 @@ How `.env` is kept out of tests (VERIFIED 2026-10-24):
 | Type check               | `bunx tsc --noEmit -p .`                                  | No                     | exit 0                                   |
 | Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0                                   |
 | Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing)     |
-| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 161 passed, 0 failed, 36 skipped (10-24) |
+| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 175 passed, 0 failed, 36 skipped (10-24) |
 | Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                  |
 | **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 34 passed, 0 failed, 1 skipped (10-24)   |
 | Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass |
@@ -52,17 +52,17 @@ If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier
 `bun run test` (Vitest, `src/test/*.test.ts[x]`, jsdom by default; DB tests use
 `// @vitest-environment node`):
 
-| File                                                                                                                  | Covers                                                                                                                                                                                                      |
-| --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `calc.test.ts`, `pricing.test.ts`, `metrics.test.ts`, `demo-seed.test.ts`, `workflow.test.ts`, `app-routing.test.tsx` | Demo business rules (pricing/minimum price, metrics, fixtures, workflows, routing)                                                                                                                          |
-| `products-ui.test.tsx`                                                                                                | Demo Products screen shows the owner-only lock for employees (UI only)                                                                                                                                      |
-| `db.test.ts`                                                                                                          | Connection module with fakes (reuse, cleanup, sanitized errors, health check)                                                                                                                               |
-| `products.server.test.ts`                                                                                             | Product model/service on isolated DB: pricing, normalization, case-insensitive uniqueness (incl. raw writes), 10-way concurrent duplicates, fail-closed indexes, cost hiding, no index creation by app code |
-| `setup-indexes.test.ts`                                                                                               | Runs `scripts/setup-indexes.ts` under Bun on isolated DBs: creates, idempotent, refuses on conflicts/unnormalized data without changing it, stops on index-definition conflicts                             |
-| `auth.test.ts`                                                                                                        | Passwords, login, attempt limit, sessions/expiry, owner authorization, single owner, cookie options, config checks                                                                                          |
-| `server-errors.test.ts`                                                                                               | `toSafeError` and the real serializer payload (no stack)                                                                                                                                                    |
-| `db.integration.test.ts`                                                                                              | Opt-in live ping (skipped unless `RUN_DB_INTEGRATION=1`)                                                                                                                                                    |
-| `auth.e2e.test.ts`                                                                                                    | Opt-in E2E (skipped unless `RUN_AUTH_E2E=1`)                                                                                                                                                                |
+| File                                                                                                                  | Covers                                                                                                                                                                                                                                                   |
+| --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `calc.test.ts`, `pricing.test.ts`, `metrics.test.ts`, `demo-seed.test.ts`, `workflow.test.ts`, `app-routing.test.tsx` | Demo business rules (pricing/minimum price, metrics, fixtures, workflows, routing)                                                                                                                                                                       |
+| `products-ui.test.tsx`                                                                                                | Demo Products screen shows the owner-only lock for employees (UI only)                                                                                                                                                                                   |
+| `db.test.ts`                                                                                                          | Connection module with fakes (reuse, cleanup, sanitized errors, health check)                                                                                                                                                                            |
+| `products.server.test.ts`                                                                                             | Product model/service on isolated DB: pricing, normalization, case-insensitive uniqueness (incl. raw writes), 10-way concurrent duplicates, fail-closed indexes, cost hiding, no index creation by app code                                              |
+| `setup-indexes.test.ts`                                                                                               | Runs `scripts/setup-indexes.ts` under Bun on isolated DBs: creates, idempotent, refuses on conflicts/unnormalized data without changing it, stops on index-definition conflicts                                                                          |
+| `auth.test.ts`                                                                                                        | Passwords, login, attempt limits (simultaneous attempts, per-address/email rotation, IPv6 /64, database-down and hashing-busy un-counting), hashing concurrency bound, sessions/expiry, owner authorization, single owner, cookie options, config checks |
+| `server-errors.test.ts`                                                                                               | `toSafeError` and the real serializer payload (no stack)                                                                                                                                                                                                 |
+| `db.integration.test.ts`                                                                                              | Opt-in live ping (skipped unless `RUN_DB_INTEGRATION=1`)                                                                                                                                                                                                 |
+| `auth.e2e.test.ts`                                                                                                    | Opt-in E2E (skipped unless `RUN_AUTH_E2E=1`)                                                                                                                                                                                                             |
 
 `bun run test:e2e` (`src/test/auth.e2e.test.ts`) — fails closed if isolation cannot be confirmed:
 
@@ -88,7 +88,8 @@ and create, archived filter, redirect allowlist, hydration guards, password clea
 check, index collation, normalization, cost in create response, client-supplied stock, session
 expiry, owner-role check, attempt limit, inactive users, single-owner index, optimistic
 concurrency. On 2026-10-24: `safeErrors` on `getDatabaseHealth` (source check in `db.test.ts`
-failed when removed, passed when restored).
+failed when removed, passed when restored). Also on 2026-10-24, the ten login-hardening
+protections listed in [CHANGELOG.md](CHANGELOG.md) (login-hardening commit).
 
 ## Regenerating `src/routeTree.gen.ts` without loading `.env`
 
@@ -101,6 +102,9 @@ there with a minimal environment, then copy back only `src/routeTree.gen.ts`.
 ## Known test limitations
 
 - E2E needs Chrome and ~95 s; it is opt-in.
+- The per-address limit tests run up to ~40 real scrypt checks each, so they use a 60 s timeout.
+  Each auth test gets fresh limiters; tests that share the process-wide hashing bound must not
+  leave slots busy.
 - Browser `SameSite` enforcement is shown via cookie attributes and CSRF replays, not a real
   cross-site page.
 - The Cloudflare Workers runtime and the real Atlas database are not exercised by tests.

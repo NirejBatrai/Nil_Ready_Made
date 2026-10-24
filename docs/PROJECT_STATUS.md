@@ -18,14 +18,18 @@ Luxe Retail OS is a mobile-first POS / back-office app for a small shop in Thail
 
 ## Git state (VERIFIED 2026-10-24, local repository only)
 
-| Item                            | Value                                                                                                                                                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Current branch                  | `feature/mongodb-foundation`; working tree clean after the commits below. No upstream configured; **not pushed** (no push made or recorded locally; GitHub not checked)                                |
-| Commits on branch, newest first | `4da3c13` docs: add AI agent handbook and harden test isolation; `ced5535` feat: add secure owner authentication and product management foundation; `722d86f` Add MongoDB connection foundation        |
-| `main`                          | `49aba5c`; matches `origin/main` according to the local remote-tracking ref (last updated 2026-10-23, not re-fetched)                                                                                  |
-| Commits on branch not on `main` | `722d86f`, `ced5535`, `4da3c13`, plus the separate docs-only commit that records this status (see `git log`)                                                                                           |
-| Local backup refs               | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision |
+| Item                            | Value                                                                                                                                                                                                                                                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Current branch                  | `feature/mongodb-foundation`; working tree clean after the login-hardening commit `fix: harden login rate limiting and password hashing` (on top of `9b961e1`). No upstream configured; **not pushed** (no push made or recorded locally; GitHub not checked)                                                |
+| Commits on branch, newest first | `fix: harden login rate limiting and password hashing`; `9b961e1` docs: record completed foundation commits; `4da3c13` docs: add AI agent handbook and harden test isolation; `ced5535` feat: add secure owner authentication and product management foundation; `722d86f` Add MongoDB connection foundation |
+| `main`                          | `49aba5c`; matches `origin/main` according to the local remote-tracking ref (last updated 2026-10-23, not re-fetched)                                                                                                                                                                                        |
+| Commits on branch not on `main` | `722d86f`, `ced5535`, `4da3c13`, `9b961e1`, and the login-hardening commit (see `git log`)                                                                                                                                                                                                                   |
+| Local backup refs               | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                       |
 
+> **Committed, not pushed:** login hardening (atomic attempt counting, per-address limit,
+> bounded password hashing), its tests and docs, in commit `fix: harden login rate limiting and password hashing`. See
+> [CHANGELOG.md](CHANGELOG.md).
+>
 > **Committed, not pushed.** The product model/service step and Backend Steps 2a–3b are in
 > commit `ced5535`; the handbook (`AGENTS.md`, `docs/`) and the audit hardening (`envDir: false`
 > in `vitest.config.ts`, `safeErrors` on `getDatabaseHealth`) are in `4da3c13`. Both exist only on
@@ -37,7 +41,7 @@ Luxe Retail OS is a mobile-first POS / back-office app for a small shop in Thail
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1 — Connection foundation (commit `722d86f`) | `src/server/db.server.ts`: runtime `MONGODB_URI`, small pool, 5 s timeouts, sanitized errors; dev-only health check                                                                              |
 | Product model + server-only service          | `models/product.server.ts`, `products.server.ts` (validation, per-product minimum, cost hidden), isolated-DB tests with mongodb-memory-server                                                    |
-| 2a — Owner auth core                         | scrypt passwords, MongoDB sessions (token hash only, 7-day TTL), login limit, single-owner index, local `auth:create-owner` script, dev server bound to `127.0.0.1`                              |
+| 2a — Owner auth core                         | scrypt passwords, MongoDB sessions (token hash only, 7-day TTL), login limit (hardened 2026-10-24), single-owner index, local `auth:create-owner` script, dev server bound to `127.0.0.1`        |
 | 2b — Request-flow integration                | `safeErrors` (no stack traces to the browser), `requireOwner` middleware, `getProductForOwner`, `/dev/auth`, opt-in isolated E2E suite                                                           |
 | 2c — Login UI                                | `/login` (POST form, hydration-guarded), landing-page "Owner sign-in (real account)" link                                                                                                        |
 | 3a — Read-only product list                  | `/owner/products` + `listProductsForOwner` (never returns cost); allowlisted `/login?redirect=/owner/products`                                                                                   |
@@ -54,7 +58,7 @@ Details: [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [CHANGE
 | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | exit 0 (2026-10-23)                                                                    |
 | `bunx tsc --noEmit -p .` (run as `npx tsc --noEmit -p .`) | exit 0                                                                                 |
 | `bun run lint`                                            | 0 errors, 11 warnings (pre-existing `react-refresh/only-export-components`)            |
-| `bun run test`                                            | 12 files passed, 2 skipped; **161 tests passed, 0 failed, 36 skipped** (opt-in suites) |
+| `bun run test`                                            | 12 files passed, 2 skipped; **175 tests passed, 0 failed, 36 skipped** (opt-in suites) |
 | `bun run test:e2e`                                        | **34 passed, 0 failed, 1 skipped** (Chrome-not-found placeholder)                      |
 
 Not run (they load `.env`): `bun run build`, `bun run dev`, `bun run test:db`, `bun run preview`. The E2E suite
@@ -72,7 +76,7 @@ builds production output in an isolated copy instead. See [TESTING.md](TESTING.m
 
 ## Next approved action
 
-**None.** Backend Step 3c has **not** been approved. Wait for the owner's explicit approval and
+**None.** Pushing or merging the branch needs the owner's approval. Backend Step 3c has **not** been approved. Wait for the owner's explicit approval and
 scope before implementing anything new. Candidate next steps are listed (unapproved) in
 [ROADMAP.md](ROADMAP.md).
 
@@ -81,7 +85,8 @@ scope before implementing anything new. Candidate next steps are listed (unappro
 - Commits `722d86f`, `ced5535` and `4da3c13` are local only (not pushed or merged into `main`).
 - Demo screens still use simulated data and roles; the real product pages are separate.
 - No audit log, inventory-movement history, employee accounts or password reset.
-- Login attempt limit is in-memory (resets on restart, single process).
+- Login attempt limits and the hashing bound are in-memory (reset on restart, per process); a
+  flood that fills the hashing bound makes logins answer "Too many attempts" until it stops.
 - The production cookie (`__Host-luxe_session`, `Secure`) requires HTTPS.
 - Product SKUs and variant SKUs are unique within their own index, not against each other.
 - Cloudflare Workers runtime, Atlas IP allowlisting for hosting, and backups are unresolved.

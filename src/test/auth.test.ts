@@ -13,14 +13,24 @@ import {
   createAuthService,
   createLoginLimiter,
   ensureAuthIndexes,
+  LOGIN_ADDRESS_LIMIT,
   LOGIN_FAILED,
   LOGIN_THROTTLED,
+  loginAddressKey,
   NOT_ALLOWED,
   NOT_SIGNED_IN,
   SESSION_TTL_MS,
 } from "@/server/auth/auth.server";
 import { sessionCookieName, sessionCookieOptions } from "@/server/auth/cookie.server";
-import { hashPassword, passwordPolicyError, verifyPassword } from "@/server/auth/password.server";
+import {
+  createConcurrencyLimit,
+  HASH_CONCURRENCY,
+  hashPassword,
+  passwordHashing,
+  PasswordHashingBusyError,
+  passwordPolicyError,
+  verifyPassword,
+} from "@/server/auth/password.server";
 import { connectOptions, DatabaseUnavailableError } from "@/server/db.server";
 import { sessionModel } from "@/server/models/session.server";
 import { userModel } from "@/server/models/user.server";
@@ -35,7 +45,11 @@ let server: MongoMemoryServer;
 let conn: Connection;
 let clock: number;
 const now = () => new Date(clock);
-/** A fresh service + attempt counter per test, sharing the controllable clock. */
+const freshLimiters = () => ({
+  limiter: createLoginLimiter(),
+  addressLimiter: createLoginLimiter(LOGIN_ADDRESS_LIMIT),
+});
+/** A fresh service + attempt counters per test, sharing the controllable clock. */
 let auth: ReturnType<typeof createAuthService>;
 
 beforeAll(async () => {
@@ -57,7 +71,7 @@ beforeEach(async () => {
   await userModel(conn).collection.deleteMany({});
   await sessionModel(conn).collection.deleteMany({});
   clock = Date.parse("2026-10-23T03:00:00Z");
-  auth = createAuthService(conn, { now, limiter: createLoginLimiter() });
+  auth = createAuthService(conn, { now, ...freshLimiters() });
   const r = await auth.createFirstOwner({ email: EMAIL, name: "Test Owner", password: PASSWORD });
   if (!r.ok) throw new Error(r.error);
 });
@@ -179,8 +193,182 @@ describe("failed-login limit (5 per email + IP per 15 minutes, in memory)", () =
 
   it("keeps its memory bounded", () => {
     const limiter = createLoginLimiter({ maxFailures: 5, windowMs: 1000 }, 3);
-    for (let i = 0; i < 10; i++) limiter.fail(`k${i}`, 0);
+    for (let i = 0; i < 10; i++) limiter.tryAttempt(`k${i}`, 0);
     expect(limiter.blocked("k0", 0)).toBe(false); // evicted, not retained forever
+  });
+
+  it("simultaneous wrong attempts: exactly 5 passwords are checked, the rest are refused", async () => {
+    const results = await Promise.all(Array.from({ length: 30 }, fail));
+    expect(results.filter((r) => !r.ok && r.error === LOGIN_FAILED)).toHaveLength(5);
+    expect(results.filter((r) => !r.ok && r.error === LOGIN_THROTTLED)).toHaveLength(25);
+    expect(await auth.login({ email: EMAIL, password: PASSWORD }, IP)).toEqual({
+      ok: false,
+      error: LOGIN_THROTTLED,
+    });
+    clock += 15 * 60 * 1000;
+    expect((await auth.login({ email: EMAIL, password: PASSWORD }, IP)).ok).toBe(true);
+  });
+
+  it("the owner can still sign in from another address during a simultaneous attack", async () => {
+    const [own, ...attack] = await Promise.all([
+      auth.login({ email: EMAIL, password: PASSWORD }, "198.51.100.9"),
+      ...Array.from({ length: 20 }, fail),
+    ]);
+    expect(own?.ok).toBe(true);
+    expect(attack.every((r) => !r.ok)).toBe(true);
+  });
+});
+
+// Up to ~40 real scrypt checks per test, so allow more than the default 5 s.
+describe(
+  "per-address limit (20 per address across all emails per 15 minutes)",
+  { timeout: 60_000 },
+  () => {
+    const OTHER_IP = "198.51.100.9";
+    const unknown = (i: number, ip = IP) =>
+      auth.login({ email: `rotate${i}@example.invalid`, password: PASSWORD }, ip);
+    const owner = (ip = IP) => auth.login({ email: EMAIL, password: PASSWORD }, ip);
+    const throttled = { ok: false, error: LOGIN_THROTTLED };
+
+    it("is 20 attempts per 15 minutes", () => {
+      expect(LOGIN_ADDRESS_LIMIT).toEqual({ maxFailures: 20, windowMs: 15 * 60 * 1000 });
+    });
+
+    it("rotating emails from one address: 20 checks, then refused even for the owner; the owner signs in elsewhere", async () => {
+      for (let i = 0; i < 20; i++)
+        expect(await unknown(i)).toEqual({ ok: false, error: LOGIN_FAILED });
+      expect(await unknown(20)).toEqual(throttled);
+      expect(await owner()).toEqual(throttled);
+      expect((await owner(OTHER_IP)).ok).toBe(true);
+      clock += 15 * 60 * 1000;
+      expect((await owner()).ok).toBe(true);
+    });
+
+    it("simultaneous rotation is counted before hashing: only the remaining allowance is checked", async () => {
+      await unknown(-1, OTHER_IP); // dummy hash ready, so each attempt below needs one hashing slot
+      for (let i = 0; i < 15; i++) await unknown(i);
+      // 10 at once fit the hashing limit (2 running + 8 waiting), so only the address limit refuses.
+      const results = await Promise.all(Array.from({ length: 10 }, (_, i) => unknown(100 + i)));
+      expect(results.filter((r) => !r.ok && r.error === LOGIN_FAILED)).toHaveLength(5);
+      expect(results.filter((r) => !r.ok && r.error === LOGIN_THROTTLED)).toHaveLength(5);
+    });
+
+    it("attempts refused by the per-email limit do not use up the address's allowance", async () => {
+      for (let i = 0; i < 5; i++)
+        expect(await auth.login({ email: EMAIL, password: "wrong-password-1" }, IP)).toEqual({
+          ok: false,
+          error: LOGIN_FAILED,
+        });
+      for (let i = 0; i < 10; i++) expect(await owner()).toEqual(throttled);
+      for (let i = 0; i < 15; i++)
+        expect(await unknown(i)).toEqual({ ok: false, error: LOGIN_FAILED });
+      expect(await unknown(15)).toEqual(throttled);
+    });
+
+    it("a correct password does not count against the address", async () => {
+      for (let i = 0; i < 19; i++) await unknown(i);
+      expect((await owner()).ok).toBe(true);
+      expect(await unknown(19)).toEqual({ ok: false, error: LOGIN_FAILED });
+      expect(await unknown(20)).toEqual(throttled);
+    });
+
+    it("IPv6 counts per /64; IPv4-mapped IPv6 counts as IPv4", async () => {
+      expect(loginAddressKey("2001:db8:1:2::5")).toBe("2001:db8:1:2::/64");
+      expect(loginAddressKey("2001:0DB8:0001:0002:ffff:1:2:3")).toBe("2001:db8:1:2::/64");
+      expect(loginAddressKey("2001:db8::1")).toBe("2001:db8:0:0::/64");
+      expect(loginAddressKey("fe80::1%eth0")).toBe("fe80:0:0:0::/64");
+      expect(loginAddressKey("::1")).toBe("0:0:0:0::/64");
+      expect(loginAddressKey("::ffff:203.0.113.7")).toBe(IP);
+      expect(loginAddressKey(IP)).toBe(IP);
+      for (const odd of ["unknown", "1::2::3", "1:2:3:4:5:6:7:8:9", "zz::1"])
+        expect(loginAddressKey(odd)).toBe(odd);
+
+      for (let i = 0; i < 20; i++) await unknown(i, `2001:db8:1:2::${i + 1}`);
+      expect(await owner("2001:db8:1:2:ffff:ffff:ffff:ffff")).toEqual(throttled);
+      expect((await owner("2001:db8:1:3::1")).ok).toBe(true);
+    });
+  },
+);
+
+describe("password hashing concurrency limit", () => {
+  /** A task that stays running until `open()` is called. */
+  const gate = () => {
+    let open = () => {};
+    const done = new Promise<void>((resolve) => (open = resolve));
+    return { open, task: () => done };
+  };
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("runs at most maxActive at once, queues maxQueued, refuses the rest without running them", async () => {
+    const limit = createConcurrencyLimit({ maxActive: 2, maxQueued: 3 });
+    const gates = Array.from({ length: 5 }, gate);
+    const running = gates.map((g) => limit.run(g.task));
+    await flush();
+    expect(limit.stats()).toEqual({ active: 2, queued: 3 });
+    let ran = false;
+    await expect(limit.run(async () => void (ran = true))).rejects.toBeInstanceOf(
+      PasswordHashingBusyError,
+    );
+    expect(ran).toBe(false);
+    gates[0]?.open();
+    await flush();
+    expect(limit.stats()).toEqual({ active: 2, queued: 2 }); // slot handed to a waiter
+    for (const g of gates) g.open();
+    await Promise.all(running);
+    expect(limit.stats()).toEqual({ active: 0, queued: 0 });
+  });
+
+  it("releases its slot when a task fails", async () => {
+    const limit = createConcurrencyLimit({ maxActive: 1, maxQueued: 0 });
+    await expect(limit.run(() => Promise.reject(new Error("boom")))).rejects.toThrow("boom");
+    expect(await limit.run(() => Promise.resolve("ok"))).toBe("ok");
+  });
+
+  it("the server allows 2 hashes at once and 8 waiting", () => {
+    expect(HASH_CONCURRENCY).toEqual({ maxActive: 2, maxQueued: 8 });
+  });
+
+  it("when hashing is full, login hashes nothing, answers 'Too many attempts', and does not count it", async () => {
+    const fill = Array.from(
+      { length: HASH_CONCURRENCY.maxActive + HASH_CONCURRENCY.maxQueued },
+      gate,
+    );
+    const held = fill.map((g) => passwordHashing.run(g.task));
+    await flush();
+    try {
+      for (let i = 0; i < 8; i++)
+        expect(await auth.login({ email: EMAIL, password: PASSWORD }, IP)).toEqual({
+          ok: false,
+          error: LOGIN_THROTTLED,
+        });
+      expect(await auth.login({ email: "nobody@example.invalid", password: PASSWORD }, IP)).toEqual(
+        { ok: false, error: LOGIN_THROTTLED },
+      );
+    } finally {
+      for (const g of fill) g.open();
+      await Promise.all(held);
+    }
+    // The busy refusals were not counted: all 5 failures are still available, then the limit.
+    for (let i = 0; i < 5; i++)
+      expect(await auth.login({ email: EMAIL, password: "wrong-password-1" }, IP)).toEqual({
+        ok: false,
+        error: LOGIN_FAILED,
+      });
+    expect((await auth.login({ email: EMAIL, password: PASSWORD }, IP)).ok).toBe(false);
+    clock += 15 * 60 * 1000;
+    expect((await auth.login({ email: EMAIL, password: PASSWORD }, IP)).ok).toBe(true);
+  });
+
+  it("a flood of unknown emails never leaves hashing slots in use", async () => {
+    const results = await Promise.all(
+      Array.from({ length: 30 }, (_, i) =>
+        auth.login({ email: `flood${i}@example.invalid`, password: PASSWORD }, IP),
+      ),
+    );
+    for (const r of results)
+      expect([LOGIN_FAILED, LOGIN_THROTTLED]).toContain(r.ok ? "signed in" : r.error);
+    expect(passwordHashing.stats()).toEqual({ active: 0, queued: 0 });
+    expect((await auth.login({ email: EMAIL, password: PASSWORD }, IP)).ok).toBe(true);
   });
 });
 
@@ -346,7 +534,7 @@ describe("database failures", () => {
   it("login surfaces only a generic DatabaseUnavailableError", async () => {
     const dead = mongoose.createConnection();
     await dead.openUri(server.getUri(), { ...connectOptions(true), dbName: "luxe_auth_test" });
-    const service = createAuthService(dead, { now, limiter: createLoginLimiter() });
+    const service = createAuthService(dead, { now, ...freshLimiters() });
     await dead.destroy();
     const err = await service
       .login({ email: EMAIL, password: PASSWORD }, IP)
@@ -354,6 +542,39 @@ describe("database failures", () => {
     expect(err).toBeInstanceOf(DatabaseUnavailableError);
     expect(String(err)).not.toMatch(/127\.0\.0\.1|mongodb:\/\//);
   });
+
+  it("attempts that fail on a database error are not counted by either limit", async () => {
+    const limiters = freshLimiters();
+    const dead = mongoose.createConnection();
+    await dead.openUri(server.getUri(), { ...connectOptions(true), dbName: "luxe_auth_test" });
+    const down = createAuthService(dead, { now, ...limiters });
+    await dead.destroy();
+    for (let i = 0; i < 25; i++)
+      await expect(
+        down.login({ email: EMAIL, password: "wrong-password-1" }, IP),
+      ).rejects.toBeInstanceOf(DatabaseUnavailableError);
+    expect(passwordHashing.stats()).toEqual({ active: 0, queued: 0 });
+    // Same counters, working database: the full per-email allowance is still there.
+    const up = createAuthService(conn, { now, ...limiters });
+    for (let i = 0; i < 5; i++)
+      expect(await up.login({ email: EMAIL, password: "wrong-password-1" }, IP)).toEqual({
+        ok: false,
+        error: LOGIN_FAILED,
+      });
+    expect(await up.login({ email: EMAIL, password: PASSWORD }, IP)).toEqual({
+      ok: false,
+      error: LOGIN_THROTTLED,
+    });
+    // ...and of the per-address allowance (5 used above, 15 left).
+    for (let i = 0; i < 15; i++)
+      expect(
+        await up.login({ email: `other${i}@example.invalid`, password: PASSWORD }, IP),
+      ).toEqual({ ok: false, error: LOGIN_FAILED });
+    expect(await up.login({ email: "other99@example.invalid", password: PASSWORD }, IP)).toEqual({
+      ok: false,
+      error: LOGIN_THROTTLED,
+    });
+  }, 60_000);
 });
 
 describe("cookie and configuration", () => {

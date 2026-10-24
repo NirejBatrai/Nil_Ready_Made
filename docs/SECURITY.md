@@ -13,15 +13,35 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
 
 ## Authentication
 
-| Item             | Implementation                                                                                                                                                |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Accounts         | One owner (`users.role` enum is `["owner"]`); DB index `single_owner` allows only one                                                                         |
-| Owner creation   | **Local only**: `bun run auth:create-owner` (hidden password prompt; refuses if an owner exists). No public registration route or server function exists.     |
-| Password hashing | Node `crypto.scrypt`, N=2^15, r=8, p=3, 16-byte salt, 64-byte key, `timingSafeEqual`; stored as `scrypt$N$r$p$salt$key`; out-of-bounds stored params rejected |
-| Password policy  | 10–128 characters (NFKC-normalized)                                                                                                                           |
-| Login errors     | Always "Email or password is incorrect."; unknown emails are checked against a dummy hash (timing)                                                            |
-| Attempt limit    | 5 failures per email + IP per 15 minutes, **in memory** (resets on restart; one process). IP from the socket; `X-Forwarded-For` is ignored                    |
-| Inactive users   | Cannot log in; existing sessions stop working immediately                                                                                                     |
+| Item             | Implementation                                                                                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Accounts         | One owner (`users.role` enum is `["owner"]`); DB index `single_owner` allows only one                                                                                           |
+| Owner creation   | **Local only**: `bun run auth:create-owner` (hidden password prompt; refuses if an owner exists). No public registration route or server function exists.                       |
+| Password hashing | Node `crypto.scrypt`, N=2^15, r=8, p=3, 16-byte salt, 64-byte key, `timingSafeEqual`; stored as `scrypt$N$r$p$salt$key`; out-of-bounds stored params rejected                   |
+| Password policy  | 10–128 characters (NFKC-normalized)                                                                                                                                             |
+| Login errors     | Always "Email or password is incorrect."; unknown emails are checked against a dummy hash (timing)                                                                              |
+| Attempt limit    | Two in-memory limits (reset on restart; one process), both per 15 minutes: **5 per email + address** and **20 per address across all emails** (stops email rotation). See below |
+| Hash concurrency | At most **2** scrypt derivations at once (≈64 MiB) and **8** waiting, per process; beyond that login answers "Too many attempts" without hashing                                |
+| Inactive users   | Cannot log in; existing sessions stop working immediately                                                                                                                       |
+
+### Login attempt limits (`src/server/auth/auth.server.ts`, VERIFIED 2026-10-24)
+
+- **Address**: the socket IP (`X-Forwarded-For` is ignored because clients can forge it). IPv6
+  is counted per **/64** (one user usually controls a whole /64); IPv4-mapped IPv6 counts as its
+  IPv4 address; unparseable values (e.g. `unknown`) are counted exactly as given.
+- **Counted before hashing, atomically**: both limits are checked and the attempt is counted in
+  one synchronous step before any `await`, so simultaneous requests cannot all pass (30 at once
+  → exactly 5 password checks). If the per-email limit refuses, the address count is undone.
+- **Wrong password, unknown email, inactive account**: stays counted in both limits.
+- **Correct password**: clears the per-email + address count and does not count against the
+  address (failures by others from that address stay counted).
+- **No verdict** (database error, or hashing busy): un-counted in both limits, so an outage or
+  overload does not lock the owner out later. Hashing busy answers "Too many attempts. Try again
+  later."; a database error answers "Database unavailable.".
+- **Effect of an attack**: one address gets at most 20 password checks per 15 minutes in total
+  and 5 per email. The owner signing in from a **different** address is unaffected; from the
+  attacking address they must wait for the window to pass.
+- The hashing limit releases its slot in `finally`, so failed derivations never leak a slot.
 
 ## Sessions and cookies
 
@@ -112,7 +132,15 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
 
 ## Known security limitations (open)
 
-- In-memory login limit; no account lockout persistence.
+- In-memory login limits and hashing bound: reset on restart and are per process (on Cloudflare
+  Workers, per isolate), so several instances each allow their own quota. A shared store is not
+  built.
+- Many different addresses (a botnet) each get their own quota; there is deliberately no global
+  per-email limit, because it would let anyone lock the owner out.
+- An attacker who keeps the hashing limit full makes every login answer "Too many attempts"
+  until the attack stops (resources stay bounded; availability does not).
+- Every login request, including throttled ones, opens the database connection first
+  (`withDatabase` wraps the whole login); on Workers that is one connection per request.
 - No audit log of logins or product changes yet.
 - No password reset; no employee accounts.
 - Production cookie needs HTTPS; hosting, Atlas network access and backups are undecided.
