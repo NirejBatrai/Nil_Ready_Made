@@ -4,6 +4,45 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-10-24/25 — Baseline security headers (uncommitted, awaiting owner review)
+
+- `src/server/security-headers.server.ts` (new) + `src/server.ts`: every dynamic response
+  (pages, redirects, 404s, server functions, CSRF 403s, both error-page paths) gets
+  `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'` (only),
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, a
+  restrictive `Permissions-Policy`, and `Cache-Control: no-store`. The response is copied
+  (redirect headers are immutable); body, status and all `Set-Cookie` are kept.
+- Owner decisions: `no-store` on all dynamic responses (not a path list); HSTS through the
+  runtime setting `SECURITY_HSTS_MAX_AGE`, off by default, sent only by production builds on
+  `https:` requests; added to `.env.example` with no value (`.env` not read or changed).
+- `public/_headers` (new): same baseline for static files in Cloudflare `_headers` format; Nitro
+  merges it into `.output/public/_headers` (E2E-checked). Cloudflare applying it: NOT VERIFIED.
+- Tests: `src/test/security-headers.test.ts` (28 tests); E2E header checks on `/`, `/login`,
+  `/dev/auth`, a 404, signed-out redirects for both owner pages, signed-in `/owner/products`,
+  owner server functions, a CSRF 403, the database-down owner page, static `favicon.ico` not
+  `no-store`, and the build's `_headers`.
+- Mutation tests (each applied → test failed for the expected reason → restored byte-identical →
+  control passed): X-Frame-Options removed (unit + E2E); frame-ancestors removed; catch branch
+  unsecured; normal/swallowed-error path unsecured (unit + E2E); `no-store` removed (unit + E2E
+  CSRF 403); HSTS without the https check; a line removed from `public/_headers`; headers changed
+  in place instead of copied (redirect throws "immutable"). Correction: the first M5 E2E run used
+  the filter `-t CSRF`, which also selected a test depending on earlier setup, so its control
+  failed too; redone with the sign-in test plus the exact CSRF test name.
+- Pre-commit review fixes (2026-10-25): `securityHeaderOptions` never throws (the environment
+  reader is injectable; an unreadable environment keeps HSTS off), so the error-page path cannot
+  fail on it; E2E now checks the exact `Permissions-Policy` value and that `favicon.ico` carries
+  none of the security headers (proves static files bypass `src/server.ts` in dev); docs mark the
+  Cloudflare asset path as NOT VERIFIED separately from what is verified, and note that HSTS is
+  never sent behind a TLS-terminating proxy that forwards plain http.
+- Mutation tests rerun 2026-10-25 after the fixes, all ten failing for the expected reason,
+  restored byte-identical (SHA-256) and passing their control: the eight above, plus the setting
+  read allowed to throw (`ReferenceError: process is not defined`) and a `Permissions-Policy`
+  entry removed from both the constant and `public/_headers` (unit + E2E exact-value check).
+- Results (2026-10-25): `tsc` exit 0; lint 0 errors / 11 warnings; `bun run test` 203 passed,
+  0 failed, 37 skipped; `bun run test:e2e` 35 passed, 0 failed, 1 skipped (one earlier full run
+  that day failed in setup with every test skipped; the error was not captured and it did not
+  recur in two further full runs); nothing left running.
+
 ## 2026-10-24 — Login hardening (commit `fix: harden login rate limiting and password hashing`, local, not pushed)
 
 - Fixes the audit's High finding: simultaneous wrong passwords all reached scrypt (30 of 30),

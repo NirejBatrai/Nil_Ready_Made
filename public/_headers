@@ -1,0 +1,9 @@
+# Baseline security headers for static files (Cloudflare static assets _headers format).
+# Dynamic responses get the same headers from src/server/security-headers.server.ts; keep the
+# two in sync (src/test/security-headers.test.ts checks). No Cache-Control or HSTS here.
+/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: accelerometer=(), autoplay=(), bluetooth=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), serial=(), usb=(), xr-spatial-tracking=()

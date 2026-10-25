@@ -21,6 +21,8 @@ for that target. Hosting is paused; see [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ```
 src/
+  server.ts               Server entry: HTML error page fallback + security headers on every dynamic response
+  start.ts                Request middleware: error handling, CSRF for server functions
   routes/                 File-based routes (TanStack Router). routeTree.gen.ts is GENERATED.
     __root.tsx            Root shell, head, error/not-found components
     index.tsx             Landing page: demo role cards + "Owner sign-in (real account)" link
@@ -41,11 +43,13 @@ src/
   server/                 SERVER-ONLY (*.server.ts; blocked from browser bundles)
     db.server.ts          Connection access (runtime MONGODB_URI, sanitized errors)
     health.server.ts      Health check core
+    security-headers.server.ts Baseline security headers, no-store, opt-in HSTS
     products.server.ts    Product service (validation, create, reads)
     models/               Mongoose models: product, user, session
     auth/                 password (scrypt), auth core, cookie options, session-context (HTTP bridge)
   types/domain.ts         Shared domain types
   test/                   Vitest tests (see TESTING.md)
+public/_headers           Same baseline headers for static files (Cloudflare _headers format)
 scripts/                  Local-only CLI scripts run with Bun by the owner
   create-owner.ts         bun run auth:create-owner
   setup-indexes.ts        bun run db:setup-indexes
@@ -71,6 +75,23 @@ functions, and choosing a demo role creates no session (tested in E2E).
   dynamic `import()` inside the handler. A production-build scan in the E2E suite confirms no
   Mongoose, scrypt, `MONGODB_URI`, password-hash or session-cookie code reaches the browser.
 - A server function is only bundled if something imports it (why `/dev/*` pages exist).
+
+### Response headers
+
+- VERIFIED 2026-10-25 in source, unit tests and E2E (dev server): every dynamic response (pages, `beforeLoad` redirects, 404s, server functions, CSRF 403s,
+  error pages) leaves through `src/server.ts`, which copies it with `applySecurityHeaders`
+  (`src/server/security-headers.server.ts`). `vite dev` uses the same entry. Headers and HSTS
+  rules: [SECURITY.md](SECURITY.md#security-headers).
+- Static files do **not** pass through it in dev: Vite serves `public/` and modules itself
+  (VERIFIED in E2E: `favicon.ico` carries none of the security headers).
+- On Cloudflare (NOT VERIFIED on a deployment; checked only in the installed Nitro source): the
+  `cloudflare-module` handler sends public asset URLs to the `ASSETS` binding before the app,
+  and Nitro writes a `wrangler.json` with that binding by default (`deployConfig` defaults to
+  true). Cloudflare's documentation says it can also serve assets without running the Worker
+  (NOT VERIFIED).
+- Static-file headers come from `public/_headers`, which Nitro merges into
+  `.output/public/_headers` (VERIFIED in the E2E production build of the isolated copy). Whether
+  Cloudflare applies it: NOT VERIFIED (needs a real deployment or `wrangler`).
 
 ### Server functions (VERIFIED)
 

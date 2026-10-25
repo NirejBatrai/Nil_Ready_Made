@@ -50,6 +50,24 @@ const ENV_LIKE = /(^|\/)(\.env(\..*)?|\.dev\.vars)$/;
 const LEAK =
   /"stack"|\bat\s+\S+\s*\(|\/tmp\/|\/home\/|node_modules|\.server\.ts|mongodb(\+srv)?:\/\//;
 
+// Baseline security headers every dynamic response must carry (written out independently).
+const SECURITY_HEADERS = {
+  "x-frame-options": "DENY",
+  "content-security-policy": "frame-ancestors 'none'",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "permissions-policy":
+    "accelerometer=(), autoplay=(), bluetooth=(), camera=(), display-capture=(), geolocation=(), " +
+    "gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), serial=(), " +
+    "usb=(), xr-spatial-tracking=()",
+};
+function expectSecured(headers: Headers, what: string) {
+  for (const [name, value] of Object.entries(SECURITY_HEADERS))
+    expect(headers.get(name), `${what}: ${name}`).toBe(value);
+  expect(headers.get("cache-control"), `${what}: cache-control`).toBe("no-store");
+  expect(headers.get("strict-transport-security"), `${what}: no HSTS over http`).toBeNull();
+}
+
 const root = process.cwd();
 let copy = "";
 let server: MongoMemoryServer | undefined;
@@ -201,7 +219,7 @@ async function replay(
   const res = await fetch(req.url, { method: req.method, headers, body: req.body });
   const text = await res.text();
   responses.push(text);
-  return { status: res.status, text };
+  return { status: res.status, text, headers: res.headers };
 }
 
 const lastRequest = (fragment: string) => {
@@ -286,6 +304,27 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       if (lan) expect(await canConnect(lan, port)).toBe(false);
     });
 
+    it("pages, 404s and server functions carry the security headers; static files keep their caching", async () => {
+      for (const path of ["/", "/login", "/dev/auth", "/does-not-exist"]) {
+        const res = await fetch(`${base}${path}`, { redirect: "manual" });
+        await res.text();
+        expectSecured(res.headers, path);
+      }
+      const missing = await fetch(`${base}/does-not-exist`);
+      await missing.text();
+      expect(missing.status).toBe(404);
+      // Static files are served by Vite before the app (on Cloudflare: by the assets binding), so
+      // dynamic no-store never reaches them. No security header at all proves this response did
+      // not pass through src/server.ts (in dev nothing adds them to static files; on Cloudflare
+      // public/_headers would, which is not exercised here).
+      const favicon = await fetch(`${base}/favicon.ico`);
+      expect((await favicon.arrayBuffer()).byteLength).toBeGreaterThan(0);
+      expect(favicon.status).toBe(200);
+      for (const name of Object.keys(SECURITY_HEADERS))
+        expect(favicon.headers.get(name), `favicon: ${name}`).toBeNull();
+      expect(favicon.headers.get("cache-control")).not.toBe("no-store");
+    });
+
     it("before login: no user, owner-only data refused", async () => {
       expect(await act("whoami")).toBe("null");
       expect(await act("owner-product")).toBe("error: Not signed in.");
@@ -324,10 +363,13 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       const token = (await sessionCookie())?.value ?? "";
       await act("owner-product");
       const req = lastRequest("/_serverFn");
-      expect((await replay(req, { origin: "cross", cookie: token })).status).toBe(403);
+      const cross = await replay(req, { origin: "cross", cookie: token });
+      expect(cross.status).toBe(403);
+      expectSecured(cross.headers, "CSRF 403");
       expect((await replay(req, { origin: "none", cookie: token })).status).toBe(403);
       const same = await replay(req, { origin: "same", cookie: token });
       expect(same.status).toBe(200);
+      expectSecured(same.headers, "owner server function");
       expect(same.text).toContain('"cost"'); // owner data, delivered only to the same-origin request
       // Login itself is also protected against cross-site posts.
       await signIn(EMAIL, "wrong-password-1");
@@ -489,6 +531,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         expect(res.status).toBeGreaterThanOrEqual(300);
         expect(res.status).toBeLessThan(400);
         expect(res.headers.get("location")).toMatch(/\/login\?redirect=%2Fowner%2Fproducts$/);
+        expectSecured(res.headers, "/owner/products redirect");
         await loginPage.goto(`${base}/owner/products`);
         await loginPage.waitForURL(`${base}/login?redirect=%2Fowner%2Fproducts`);
       });
@@ -538,8 +581,16 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         const content = await loginPage.content();
         for (const leak of ['"cost"', String(SECRET_COST), "฿200", ARCHIVED])
           expect(content).not.toContain(leak);
-        const ssr = await html("/owner/products", (await sessionCookie())?.value);
+        const token = (await sessionCookie())?.value ?? "";
+        const ssr = await html("/owner/products", token);
         expect(ssr).toContain("E2E Sun Hat");
+        const owned = await fetch(`${base}/owner/products`, {
+          headers: { cookie: `${COOKIE}=${token}` },
+          redirect: "manual",
+        });
+        await owned.text();
+        expect(owned.status).toBe(200);
+        expectSecured(owned.headers, "signed-in /owner/products");
         for (const leak of ['"cost"', String(SECRET_COST), ARCHIVED])
           expect(ssr).not.toContain(leak);
       });
@@ -553,6 +604,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         const token = (await sessionCookie())?.value ?? "";
         const owner = await replay(req, { origin: "same", cookie: token });
         expect(owner.text).toContain(SECOND);
+        expectSecured(owner.headers, "listProductsForOwner");
         expect(owner.text).not.toContain('"cost"');
         const anonymous = await replay(req, { origin: "same" });
         expect(anonymous.text).toContain("Not signed in.");
@@ -625,6 +677,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         expect(res.status).toBeGreaterThanOrEqual(300);
         expect(res.status).toBeLessThan(400);
         expect(res.headers.get("location")).toMatch(/\/login\?redirect=%2Fowner%2Fproducts$/);
+        expectSecured(res.headers, "/owner/products/new redirect");
         const demo = await context.newPage();
         await demo.goto(`${base}/`, { waitUntil: "networkidle" });
         await demo.getByRole("button", { name: /^Owner/ }).click();
@@ -869,6 +922,11 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       expect(newForm).not.toMatch(LEAK);
       const products = await html("/owner/products", "A".repeat(43));
       expect(products).toContain('data-testid="products-error"');
+      const down = await fetch(`${base}/owner/products`, {
+        headers: { cookie: `${COOKIE}=${"A".repeat(43)}` },
+      });
+      await down.text();
+      expectSecured(down.headers, "/owner/products, database down");
       expect(products).toContain("temporarily unavailable");
       expect(products).not.toMatch(LEAK);
       await loginPage.goto(`${base}/login`, { waitUntil: "networkidle" });
@@ -894,6 +952,12 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         expect(js).not.toMatch(
           /mongoose|scrypt|timingSafeEqual|MONGODB_URI|passwordHash|luxe_session/,
         );
+      // Static-file headers for Cloudflare reach the build output (applied by Cloudflare itself:
+      // not verifiable locally).
+      const staticHeaders = readFileSync(join(copy, ".output/public/_headers"), "utf8");
+      expect(staticHeaders).toMatch(/^\/\*$/m);
+      for (const [name, value] of Object.entries(SECURITY_HEADERS))
+        expect(staticHeaders.toLowerCase()).toContain(`  ${name}: ${value.toLowerCase()}`);
     }, 300_000);
   },
 );

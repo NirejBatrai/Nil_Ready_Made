@@ -76,6 +76,45 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
   native submit can never put values (e.g. passwords) into a URL.
 - `/login?redirect=` accepts **only** `/owner/products`; anything else is dropped (no open redirect).
 
+## Security headers
+
+_VERIFIED 2026-10-25 in source, unit tests (`security-headers.test.ts`) and E2E (dev server), except where marked._
+
+| Header                      | Value                                                                                                                              |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `X-Frame-Options`           | `DENY`                                                                                                                             |
+| `Content-Security-Policy`   | `frame-ancestors 'none'` **only** (anti-framing; no script/style policy)                                                           |
+| `X-Content-Type-Options`    | `nosniff`                                                                                                                          |
+| `Referrer-Policy`           | `strict-origin-when-cross-origin`                                                                                                  |
+| `Permissions-Policy`        | camera, microphone, geolocation, payment, USB, serial, Bluetooth, HID, sensors, MIDI, autoplay, display capture, XR all `()` (off) |
+| `Cache-Control`             | `no-store` on **every dynamic response** (static files unaffected)                                                                 |
+| `Strict-Transport-Security` | Off by default; see below                                                                                                          |
+
+- Applied in `src/server.ts` to every dynamic response: pages, redirects, 404s, server
+  functions, CSRF 403s and both error-page paths. The response is copied (redirect headers are
+  immutable); body, status and every `Set-Cookie` are kept. Values are set, never appended.
+- `no-store` applies by rule, not by a path list, so owner pages and server-function data cannot
+  be cached under another spelling of the path (case or percent-encoding). Hashed `/assets/*`
+  responses that already carry their own `Cache-Control` keep it.
+- Static files get the same baseline (without `no-store` or HSTS) from `public/_headers`; a
+  unit test keeps it equal to the server constants. Cloudflare applying it is NOT VERIFIED.
+- **HSTS** is sent only when all three hold: a production build (`import.meta.env.PROD`), the
+  request URL is `https:`, and the server setting `SECURITY_HSTS_MAX_AGE` is a whole number of
+  seconds from 1 to 63072000. Anything else, including an unreadable environment, means off;
+  reading the setting never throws. Otherwise any HSTS header is removed. No
+  `includeSubDomains`/`preload`. Owner rollout after HTTPS on the real domain is verified:
+  300 → 86400 → 31536000. Removing the setting does not clear what browsers already stored; to
+  back out, set a small value (e.g. `1`) so returning HTTPS visits replace it. Reading the
+  setting on Workers via `process.env` is NOT VERIFIED (same mechanism as `MONGODB_URI`).
+- **Behind a TLS-terminating proxy** that forwards plain `http` to the app (e.g. a Node.js host
+  behind a load balancer), the request URL is `http:`, so HSTS is **never** sent, even with the
+  setting. This fails safe; enabling HSTS there would need trusted-proxy handling (not built) or
+  HSTS set at the proxy. On Cloudflare Workers the request URL is the visitor's `https:` URL
+  (NOT VERIFIED on a deployment).
+- A full Content-Security-Policy (scripts/styles) is **not** set: the hydration scripts, the
+  error page's inline style and `onclick`, and Google Fonts would need nonces or allowlists.
+- A future camera barcode scanner needs `camera=(self)` in both the constant and `public/_headers`.
+
 ## Error handling
 
 - TanStack Start serializes thrown server-function errors **with their stack trace**. Therefore
@@ -113,8 +152,8 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
 
 ## Secrets and configuration
 
-- `.env*` and `.dev.vars` are git-ignored; `.env.example` (committed) lists `MONGODB_URI=` and
-  `DB_HEALTHCHECK_ENABLED=` with **no values**.
+- `.env*` and `.dev.vars` are git-ignored; `.env.example` (committed) lists `MONGODB_URI=`,
+  `DB_HEALTHCHECK_ENABLED=` and `SECURITY_HSTS_MAX_AGE=` with **no values**.
 - Never prefix secrets with `VITE_` — the build config exposes `VITE_*` values to the browser.
 - In application code, `MONGODB_URI` is read only in `src/server/db.server.ts` at call time and
   never logged. The opt-in `test:db` test (`db.integration.test.ts`) also reads it from the
@@ -141,6 +180,8 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
   until the attack stops (resources stay bounded; availability does not).
 - Every login request, including throttled ones, opens the database connection first
   (`withDatabase` wraps the whole login); on Workers that is one connection per request.
+- No full Content-Security-Policy (only `frame-ancestors`); HSTS not enabled anywhere yet; static
+  file headers on Cloudflare not verified.
 - No audit log of logins or product changes yet.
 - No password reset; no employee accounts.
 - Production cookie needs HTTPS; hosting, Atlas network access and backups are undecided.
