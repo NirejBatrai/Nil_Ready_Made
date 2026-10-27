@@ -4,7 +4,7 @@ Status labels: **DONE** (verified in code/tests), **PENDING** (not started), **P
 (discussed, not approved). Every new phase or sub-step needs the owner's **explicit approval**
 before implementation, even if it is listed here. Approval of one step does not approve the next.
 
-_Last updated 2026-10-24._ This file supersedes the root `roadmap.md` (demo-era checklist).
+_Last updated 2026-10-27._ This file supersedes the root `roadmap.md` (demo-era checklist).
 
 ## Completed
 
@@ -22,6 +22,8 @@ _Last updated 2026-10-24._ This file supersedes the root `roadmap.md` (demo-era 
 | Backend Step 3a — read-only `/owner/products`                                                 | DONE   | Commit `ced5535` (local branch, not pushed) |
 | Backend Step 3b — owner-only product creation + `db:setup-indexes`                            | DONE   | Commit `ced5535` (local branch, not pushed) |
 | Handbook (`AGENTS.md`, `docs/`) + audit hardening (`envDir: false`, `safeErrors` on health)   | DONE   | Commit `4da3c13` (local branch, not pushed) |
+| Login hardening (atomic attempt counting, per-address limit, bounded password hashing)        | DONE   | Commit `42518cc` (local branch, not pushed) |
+| Baseline security headers (`src/server.ts`, `public/_headers`, HSTS off by default)           | DONE   | Commit `4711be0` (local branch, not pushed) |
 
 ## Pending (none approved)
 
@@ -33,19 +35,23 @@ _Last updated 2026-10-24._ This file supersedes the root `roadmap.md` (demo-era 
 
 Candidate future work (PLANNED only, order not decided):
 
-| Item                                                                                                          | Depends on          | Approval gate                            |
-| ------------------------------------------------------------------------------------------------------------- | ------------------- | ---------------------------------------- |
-| Push `feature/mongodb-foundation` to GitHub and/or merge into `main` (work committed in `ced5535`, `4da3c13`) | Owner review        | Owner approval to push/merge             |
-| Owner runs `bun run auth:create-owner` and `bun run db:setup-indexes` on the real DB                          | Owner decision      | Owner runs it (real database writes)     |
-| Product editing / archiving through owner-only server functions                                               | 3b                  | New step approval                        |
-| Inventory movements (stock history, adjustments)                                                              | Products            | New step approval                        |
-| Sales/checkout against MongoDB (transactions, server-side prices/minimums, no overselling, immutable sales)   | Products, inventory | New step approval                        |
-| Audit log (append-only)                                                                                       | Auth                | New step approval                        |
-| Employee accounts and roles; password reset                                                                   | Auth                | New step approval                        |
-| Product images (Cloudflare R2 was discussed)                                                                  | Products            | New step approval + service setup        |
-| Connect demo screens to real data (Demo/Live separation)                                                      | Above               | New step approval                        |
-| Hosting (Fly.io/Node with fixed egress IP was researched; paused)                                             | Owner decision      | Paused by owner; payment/accounts needed |
-| Backups and recovery                                                                                          | Hosting             | New step approval                        |
+| Item                                                                                                            | Depends on             | Approval gate                                        |
+| --------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------- |
+| Push `feature/mongodb-foundation` to GitHub and/or merge into `main` (work committed in `722d86f` … `4711be0`)  | Owner review           | Owner approval to push/merge                         |
+| Login client address: stop all unknown addresses sharing one `"unknown"` limit bucket, plus a per-account limit | Auth                   | New step approval                                    |
+| Investigate the intermittent E2E failure on the product list after creation (`auth.e2e.test.ts:734`)            | 3b                     | New step approval                                    |
+| Workers/workerd test: run Mongoose and scrypt under `wrangler dev`/workerd and measure CPU and memory           | Auth, products         | New step approval + dependency approval (`wrangler`) |
+| Persistent (shared) rate-limit storage, so limits survive restarts and hold across instances/isolates           | Auth, hosting decision | New step approval                                    |
+| Owner runs `bun run auth:create-owner` and `bun run db:setup-indexes` on the real DB                            | Owner decision         | Owner runs it (real database writes)                 |
+| Product editing / archiving through owner-only server functions                                                 | 3b                     | New step approval                                    |
+| Inventory movements (stock history, adjustments)                                                                | Products               | New step approval                                    |
+| Sales/checkout against MongoDB (transactions, server-side prices/minimums, no overselling, immutable sales)     | Products, inventory    | New step approval                                    |
+| Audit log (append-only)                                                                                         | Auth                   | New step approval                                    |
+| Employee accounts and roles; password reset                                                                     | Auth                   | New step approval                                    |
+| Product images (Cloudflare R2 was discussed)                                                                    | Products               | New step approval + service setup                    |
+| Connect demo screens to real data (Demo/Live separation)                                                        | Above                  | New step approval                                    |
+| Hosting (Fly.io/Node with fixed egress IP was researched; paused)                                               | Owner decision         | Paused by owner; payment/accounts needed             |
+| Backups and recovery                                                                                            | Hosting                | New step approval                                    |
 
 ## Standing approval gates
 

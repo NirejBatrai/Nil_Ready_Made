@@ -78,7 +78,20 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
 
 ## Security headers
 
-_VERIFIED 2026-10-25 in source, unit tests (`security-headers.test.ts`) and E2E (dev server), except where marked._
+_VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E coverage
+(dev server over `http`, `auth.e2e.test.ts`) is listed separately below._
+
+- **Verified by E2E** (exact values): the five baseline headers and `Cache-Control: no-store` on
+  pages, 404s, signed-out redirects, signed-in owner pages, owner server functions, a CSRF 403
+  and the database-down owner page; **no** HSTS over `http`; static `favicon.ico` bypasses
+  `src/server.ts` (none of the headers); the production build's `.output/public/_headers`
+  contains the baseline.
+- **Unit tests only** (not E2E): **HSTS** (production + `https:` + setting; parsing; removal),
+  keeping `Cache-Control` on hashed `/assets/*` responses, `no-store` for other path spellings,
+  copying redirects / `Set-Cookie` / streamed bodies, both error-page paths in `src/server.ts`
+  (mocked entry), an unreadable environment, and `public/_headers` holding exactly the baseline.
+- **Not verified** (source/docs only): Cloudflare applying `public/_headers`, reading
+  `SECURITY_HSTS_MAX_AGE` on Workers, and the request URL scheme on Workers.
 
 | Header                      | Value                                                                                                                              |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -98,7 +111,7 @@ _VERIFIED 2026-10-25 in source, unit tests (`security-headers.test.ts`) and E2E 
   responses that already carry their own `Cache-Control` keep it.
 - Static files get the same baseline (without `no-store` or HSTS) from `public/_headers`; a
   unit test keeps it equal to the server constants. Cloudflare applying it is NOT VERIFIED.
-- **HSTS** is sent only when all three hold: a production build (`import.meta.env.PROD`), the
+- **HSTS** (unit-tested only; E2E runs over `http`) is sent only when all three hold: a production build (`import.meta.env.PROD`), the
   request URL is `https:`, and the server setting `SECURITY_HSTS_MAX_AGE` is a whole number of
   seconds from 1 to 63072000. Anything else, including an unreadable environment, means off;
   reading the setting never throws. Otherwise any HSTS header is removed. No
@@ -174,6 +187,10 @@ _VERIFIED 2026-10-25 in source, unit tests (`security-headers.test.ts`) and E2E 
 - In-memory login limits and hashing bound: reset on restart and are per process (on Cloudflare
   Workers, per isolate), so several instances each allow their own quota. A shared store is not
   built.
+- The login address is `getRequestIP()`, or the shared key `"unknown"` when it returns nothing
+  (`session-context.server.ts`). If that happens for every request on the real host, all
+  visitors share one address limit (20 per 15 minutes), so anyone could block the owner's
+  login. What it returns on Cloudflare Workers is NOT VERIFIED.
 - Many different addresses (a botnet) each get their own quota; there is deliberately no global
   per-email limit, because it would let anyone lock the owner out.
 - An attacker who keeps the hashing limit full makes every login answer "Too many attempts"

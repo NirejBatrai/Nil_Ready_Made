@@ -1,7 +1,7 @@
 /**
  * DEVELOPMENT-ONLY DIAGNOSTIC: reports whether the server can reach MongoDB.
  *
- * Not authenticated (real authentication does not exist yet). It is safe to expose only because
+ * Not authenticated (it does not use `requireOwner`). It is safe to expose only because
  * it is disabled outside `vite dev` unless DB_HEALTHCHECK_ENABLED=true is set on the server, and it
  * returns a bare status word ("ok" | "not_configured" | "unavailable" | "disabled").
  *

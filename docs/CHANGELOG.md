@@ -4,7 +4,36 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
-## 2026-10-24/25 — Baseline security headers (uncommitted, awaiting owner review)
+## 2026-10-27 — Status review and documentation/tooling hygiene (uncommitted, awaiting owner review)
+
+- Read-only status review found the docs out of date: the security-headers work had been
+  committed on 2026-10-25 as `4711be0` (message "nil comit"), on top of `42518cc` (login
+  hardening), while the docs still called it uncommitted. Both commits are local only, not
+  pushed. `main` (`49aba5c`) and the backup refs (`8d1fcda`, `46b1fe8`) unchanged.
+- Docs corrected: PROJECT_STATUS (Git state, results, limitations), ROADMAP (completed rows for
+  `42518cc`/`4711be0`, four new candidate rows), TESTING (results, new scripts, flaky test),
+  SECURITY (security-headers section separates E2E-verified from unit-only items; HSTS is
+  unit-only). Stale comment in `src/lib/db-health.ts` ("real authentication does not exist
+  yet") corrected; comment only.
+- `package.json`: new scripts `typecheck` (`tsc --noEmit -p .`) and `format:check`
+  (`prettier --check .`). No dependency changes.
+- `roadmap.md` and `src/routes/README.md` reformatted with Prettier (formatting only); they were
+  the only files failing `prettier --check .` (unformatted since `af83d01`). The docs edited in
+  this step were also run through Prettier (affects only the new text).
+- Results after these changes (2026-10-27): `bun run typecheck` exit 0; `bun run lint` 0 errors
+  / 11 warnings; `bun run format:check` exit 0; `bun run test` 203 passed, 0 failed, 37
+  skipped. E2E not re-run (no code or test changes).
+- Review results before these changes (2026-10-27): `tsc` exit 0; lint 0 errors / 11
+  warnings; `bun run test` 203 passed, 0 failed, 37 skipped; `bun run test:e2e` run twice —
+  first run 34 passed / **1 failed** / 1 skipped (intermittent: `auth.e2e.test.ts:734`, the
+  product list showed its empty state right after a product was created), second run 35
+  passed, 0 failed, 1 skipped. Not root-caused; ROADMAP lists the investigation.
+- Findings recorded as limitations (answered from code, not tested): the login limiter is
+  in-memory per process/isolate; the client address falls back to the shared key `"unknown"`
+  when `getRequestIP()` returns nothing (behaviour on Workers NOT VERIFIED); Mongoose and scrypt
+  have never run under workerd; scrypt CPU cost per login not measured.
+
+## 2026-10-24/25 — Baseline security headers (commit `4711be0`, local, not pushed)
 
 - `src/server/security-headers.server.ts` (new) + `src/server.ts`: every dynamic response
   (pages, redirects, 404s, server functions, CSRF 403s, both error-page paths) gets
@@ -43,7 +72,7 @@ Commit hashes refer to this repository. Each heading names the commit that conta
   that day failed in setup with every test skipped; the error was not captured and it did not
   recur in two further full runs); nothing left running.
 
-## 2026-10-24 — Login hardening (commit `fix: harden login rate limiting and password hashing`, local, not pushed)
+## 2026-10-24 — Login hardening (commit `42518cc`, local, not pushed)
 
 - Fixes the audit's High finding: simultaneous wrong passwords all reached scrypt (30 of 30),
   because the limit was checked before hashing but failures were recorded after.
