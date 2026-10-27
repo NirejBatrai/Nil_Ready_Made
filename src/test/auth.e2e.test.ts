@@ -205,7 +205,11 @@ const sessionCookie = async () => (await context.cookies()).find((c) => c.name =
 /** Replays a captured server-function request from Node with chosen origin headers and cookie. */
 async function replay(
   req: (typeof requests)[number],
-  opts: { origin?: "same" | "cross" | "none"; cookie?: string },
+  opts: {
+    origin?: "same" | "cross" | "none";
+    cookie?: string;
+    extraHeaders?: Record<string, string>;
+  },
 ) {
   const headers: Record<string, string> = {};
   for (const [k, v] of Object.entries(req.headers))
@@ -216,6 +220,7 @@ async function replay(
     headers["origin"] = "https://evil.example";
   }
   if (opts.cookie) headers["cookie"] = `${COOKIE}=${opts.cookie}`;
+  Object.assign(headers, opts.extraHeaders);
   const res = await fetch(req.url, { method: req.method, headers, body: req.body });
   const text = await res.text();
   responses.push(text);
@@ -872,6 +877,22 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         ok: false,
         error: "Too many attempts. Try again later.",
       });
+    });
+
+    it("spoofed CF-Connecting-IP / X-Forwarded-For are ignored off Cloudflare: still blocked", async () => {
+      // The last request is the correct-password login refused above. Were either header
+      // trusted, it would count as a fresh address and sign in.
+      const loginReq = requests.filter((r) => r.method === "POST").at(-1);
+      if (!loginReq) throw new Error("no login request captured");
+      for (const name of ["cf-connecting-ip", "x-forwarded-for", "x-real-ip"]) {
+        const spoofed = await replay(loginReq, {
+          origin: "same",
+          extraHeaders: { [name]: "198.51.100.77" },
+        });
+        expect(spoofed.status).toBe(200);
+        expect(spoofed.text).toContain("Too many attempts. Try again later.");
+        expect(spoofed.headers.get("set-cookie")).toBeNull();
+      }
     });
 
     it("/login shows the too-many-attempts message after 5 failures", async () => {

@@ -13,6 +13,7 @@ import {
   createAuthService,
   createLoginLimiter,
   ensureAuthIndexes,
+  LOGIN_ACCOUNT_LIMIT,
   LOGIN_ADDRESS_LIMIT,
   LOGIN_FAILED,
   LOGIN_THROTTLED,
@@ -48,6 +49,7 @@ const now = () => new Date(clock);
 const freshLimiters = () => ({
   limiter: createLoginLimiter(),
   addressLimiter: createLoginLimiter(LOGIN_ADDRESS_LIMIT),
+  accountLimiter: createLoginLimiter(LOGIN_ACCOUNT_LIMIT),
 });
 /** A fresh service + attempt counters per test, sharing the controllable clock. */
 let auth: ReturnType<typeof createAuthService>;
@@ -289,6 +291,158 @@ describe(
     });
   },
 );
+
+// The behaviour tests use a small per-account limit (3) so they need few real scrypt checks.
+describe("per-account limit (50 per email across all addresses per 15 minutes)", () => {
+  const throttled = { ok: false, error: LOGIN_THROTTLED };
+  const failed = { ok: false, error: LOGIN_FAILED };
+  const small = (maxFailures = 3) => ({
+    ...freshLimiters(),
+    accountLimiter: createLoginLimiter({ maxFailures, windowMs: 15 * 60 * 1000 }),
+  });
+  const addr = (i: number) => `198.51.100.${i + 1}`;
+
+  it("is 50 attempts per 15 minutes, above the per-address limit", () => {
+    expect(LOGIN_ACCOUNT_LIMIT).toEqual({ maxFailures: 50, windowMs: 15 * 60 * 1000 });
+    expect(LOGIN_ACCOUNT_LIMIT.maxFailures).toBeGreaterThan(LOGIN_ADDRESS_LIMIT.maxFailures);
+  });
+
+  it("blocks an account attacked from many addresses, even with the right password; other accounts are unaffected", async () => {
+    auth = createAuthService(conn, { now, ...small() });
+    for (let i = 0; i < 3; i++)
+      expect(await auth.login({ email: EMAIL, password: "wrong-password-1" }, addr(i))).toEqual(
+        failed,
+      );
+    expect(await auth.login({ email: EMAIL, password: PASSWORD }, addr(9))).toEqual(throttled);
+    expect(
+      await auth.login({ email: "someone@example.invalid", password: PASSWORD }, addr(9)),
+    ).toEqual(failed);
+    clock += 15 * 60 * 1000;
+    expect((await auth.login({ email: EMAIL, password: PASSWORD }, addr(9))).ok).toBe(true);
+  });
+
+  it("applies identically to an email with no account (does not reveal which accounts exist)", async () => {
+    const run = async (email: string) => {
+      auth = createAuthService(conn, { now, ...small() });
+      const out = [];
+      for (let i = 0; i < 4; i++)
+        out.push(await auth.login({ email, password: "wrong-password-1" }, addr(i)));
+      return out;
+    };
+    const existing = await run(EMAIL);
+    expect(existing).toEqual([failed, failed, failed, throttled]);
+    expect(await run("nobody@example.invalid")).toEqual(existing);
+  });
+
+  it("counts the normalized email (case and spaces do not give more attempts)", async () => {
+    auth = createAuthService(conn, { now, ...small() });
+    for (const email of [
+      "Owner@Example.INVALID",
+      " owner@example.invalid ",
+      "OWNER@example.invalid",
+    ])
+      expect(await auth.login({ email, password: "wrong-password-1" }, addr(0))).toEqual(failed);
+    expect(await auth.login({ email: EMAIL, password: PASSWORD }, addr(1))).toEqual(throttled);
+  });
+
+  it("simultaneous attempts from many addresses: exactly the limit is checked; refusals use no address allowance", async () => {
+    const limiters = {
+      ...small(),
+      addressLimiter: createLoginLimiter({ maxFailures: 1, windowMs: 15 * 60 * 1000 }),
+    };
+    auth = createAuthService(conn, { now, ...limiters });
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        auth.login({ email: EMAIL, password: "wrong-password-1" }, addr(i)),
+      ),
+    );
+    expect(results.filter((r) => !r.ok && r.error === LOGIN_FAILED)).toHaveLength(3);
+    expect(results.filter((r) => !r.ok && r.error === LOGIN_THROTTLED)).toHaveLength(7);
+    // Each address allows 1 attempt: only the 3 checked addresses have used theirs.
+    const next = await Promise.all(
+      results.map((_, i) =>
+        auth.login({ email: `other${i}@example.invalid`, password: PASSWORD }, addr(i)),
+      ),
+    );
+    results.forEach((r, i) =>
+      expect(next[i]).toEqual(r.ok === false && r.error === LOGIN_FAILED ? throttled : failed),
+    );
+  });
+
+  it("a correct password does not count against the account", async () => {
+    auth = createAuthService(conn, { now, ...small(2) });
+    expect(await auth.login({ email: EMAIL, password: "wrong-password-1" }, addr(0))).toEqual(
+      failed,
+    );
+    expect((await auth.login({ email: EMAIL, password: PASSWORD }, addr(1))).ok).toBe(true);
+    expect(await auth.login({ email: EMAIL, password: "wrong-password-1" }, addr(2))).toEqual(
+      failed,
+    );
+    expect(await auth.login({ email: EMAIL, password: PASSWORD }, addr(3))).toEqual(throttled);
+  });
+
+  it("attempts that fail on a database error are not counted against the account", async () => {
+    const limiters = small(1);
+    const dead = mongoose.createConnection();
+    await dead.openUri(server.getUri(), { ...connectOptions(true), dbName: "luxe_auth_test" });
+    const down = createAuthService(dead, { now, ...limiters });
+    await dead.destroy();
+    for (let i = 0; i < 3; i++)
+      await expect(
+        down.login({ email: EMAIL, password: "wrong-password-1" }, addr(i)),
+      ).rejects.toBeInstanceOf(DatabaseUnavailableError);
+    auth = createAuthService(conn, { now, ...limiters });
+    expect((await auth.login({ email: EMAIL, password: PASSWORD }, addr(5))).ok).toBe(true);
+  });
+
+  it("keeps its memory bounded like the other limits (same limiter, 10 000-key cap)", () => {
+    const source = readFileSync("src/server/auth/auth.server.ts", "utf8");
+    expect(source).toMatch(
+      /export const accountLoginLimiter = createLoginLimiter\(LOGIN_ACCOUNT_LIMIT\);/,
+    );
+    expect(source).toMatch(/maxKeys = 10_000/);
+  });
+});
+
+// Up to ~25 real scrypt checks per test.
+describe("no client address: no shared bucket", { timeout: 60_000 }, () => {
+  const throttled = { ok: false, error: LOGIN_THROTTLED };
+  const failed = { ok: false, error: LOGIN_FAILED };
+
+  it("unknown-address attempts never share an address limit; only the per-account limit applies", async () => {
+    // More than the 20-per-address limit, from clients whose address is unknown.
+    for (let i = 0; i < 25; i++)
+      expect(
+        await auth.login({ email: `rotate${i}@example.invalid`, password: PASSWORD }, undefined),
+      ).toEqual(failed);
+    // Another unknown-address client is not locked out by them, nor is a known address.
+    expect((await auth.login({ email: EMAIL, password: PASSWORD }, undefined)).ok).toBe(true);
+    expect((await auth.login({ email: EMAIL, password: PASSWORD }, IP)).ok).toBe(true);
+  });
+
+  it("the per-account limit still applies without an address", async () => {
+    auth = createAuthService(conn, {
+      now,
+      ...freshLimiters(),
+      accountLimiter: createLoginLimiter({ maxFailures: 3, windowMs: 15 * 60 * 1000 }),
+    });
+    for (let i = 0; i < 3; i++)
+      expect(await auth.login({ email: EMAIL, password: "wrong-password-1" }, undefined)).toEqual(
+        failed,
+      );
+    expect(await auth.login({ email: EMAIL, password: PASSWORD }, undefined)).toEqual(throttled);
+    expect(await auth.login({ email: EMAIL, password: PASSWORD }, IP)).toEqual(throttled);
+    expect(
+      await auth.login({ email: "someone@example.invalid", password: PASSWORD }, undefined),
+    ).toEqual(failed);
+  });
+
+  it("the login bridge has no shared fallback such as 'unknown'", () => {
+    const source = readFileSync("src/server/auth/session-context.server.ts", "utf8");
+    expect(source).toMatch(/const ip = loginClientAddress\(\{/);
+    expect(source).not.toMatch(/"unknown"|xForwardedFor/);
+  });
+});
 
 describe("password hashing concurrency limit", () => {
   /** A task that stays running until `open()` is called. */

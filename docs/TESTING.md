@@ -30,20 +30,20 @@ How `.env` is kept out of tests (VERIFIED 2026-10-24):
 
 ## Commands
 
-| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                     |
-| ------------------------ | --------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------ |
-| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (10-27)                                                                             |
-| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                             |
-| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (10-27)                                               |
-| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (10-27)                                                        |
-| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 203 passed, 0 failed, 37 skipped (10-27)                                                   |
-| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                    |
-| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 35 passed, 0 failed, 1 skipped (10-27); 1 of 2 runs had an intermittent failure, see below |
-| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                   |
-| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                      |
-| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                      |
-| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                          |
-| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                      |
+| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                                                   |
+| ------------------------ | --------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (10-27)                                                                                                           |
+| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                                                           |
+| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (10-27)                                                                             |
+| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (10-27)                                                                                      |
+| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 219 passed, 0 failed, 38 skipped (10-27, Step 2)                                                                         |
+| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                                                  |
+| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 36 passed, 0 failed, 1 skipped, two runs (10-27, Step 2); an earlier run that day had an intermittent failure, see below |
+| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                                                 |
+| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                                                    |
+| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                                                    |
+| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                                                        |
+| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                                                    |
 
 Do not run the `.env`-loading commands unless the owner asks; prefer that the owner runs them.
 If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier …` are equivalent.
@@ -53,18 +53,19 @@ If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier
 `bun run test` (Vitest, `src/test/*.test.ts[x]`, jsdom by default; DB tests use
 `// @vitest-environment node`):
 
-| File                                                                                                                  | Covers                                                                                                                                                                                                                                                   |
-| --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `calc.test.ts`, `pricing.test.ts`, `metrics.test.ts`, `demo-seed.test.ts`, `workflow.test.ts`, `app-routing.test.tsx` | Demo business rules (pricing/minimum price, metrics, fixtures, workflows, routing)                                                                                                                                                                       |
-| `products-ui.test.tsx`                                                                                                | Demo Products screen shows the owner-only lock for employees (UI only)                                                                                                                                                                                   |
-| `db.test.ts`                                                                                                          | Connection module with fakes (reuse, cleanup, sanitized errors, health check)                                                                                                                                                                            |
-| `products.server.test.ts`                                                                                             | Product model/service on isolated DB: pricing, normalization, case-insensitive uniqueness (incl. raw writes), 10-way concurrent duplicates, fail-closed indexes, cost hiding, no index creation by app code                                              |
-| `setup-indexes.test.ts`                                                                                               | Runs `scripts/setup-indexes.ts` under Bun on isolated DBs: creates, idempotent, refuses on conflicts/unnormalized data without changing it, stops on index-definition conflicts                                                                          |
-| `auth.test.ts`                                                                                                        | Passwords, login, attempt limits (simultaneous attempts, per-address/email rotation, IPv6 /64, database-down and hashing-busy un-counting), hashing concurrency bound, sessions/expiry, owner authorization, single owner, cookie options, config checks |
-| `security-headers.test.ts`                                                                                            | Security headers: values, no-store, redirect/Set-Cookie/stream copying, HSTS gating and setting parsing, every return path of `src/server.ts` (mocked entry), `public/_headers` in sync                                                                  |
-| `server-errors.test.ts`                                                                                               | `toSafeError` and the real serializer payload (no stack)                                                                                                                                                                                                 |
-| `db.integration.test.ts`                                                                                              | Opt-in live ping (skipped unless `RUN_DB_INTEGRATION=1`)                                                                                                                                                                                                 |
-| `auth.e2e.test.ts`                                                                                                    | Opt-in E2E (skipped unless `RUN_AUTH_E2E=1`)                                                                                                                                                                                                             |
+| File                                                                                                                  | Covers                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `calc.test.ts`, `pricing.test.ts`, `metrics.test.ts`, `demo-seed.test.ts`, `workflow.test.ts`, `app-routing.test.tsx` | Demo business rules (pricing/minimum price, metrics, fixtures, workflows, routing)                                                                                                                                                                                                                                                                                    |
+| `products-ui.test.tsx`                                                                                                | Demo Products screen shows the owner-only lock for employees (UI only)                                                                                                                                                                                                                                                                                                |
+| `db.test.ts`                                                                                                          | Connection module with fakes (reuse, cleanup, sanitized errors, health check)                                                                                                                                                                                                                                                                                         |
+| `products.server.test.ts`                                                                                             | Product model/service on isolated DB: pricing, normalization, case-insensitive uniqueness (incl. raw writes), 10-way concurrent duplicates, fail-closed indexes, cost hiding, no index creation by app code                                                                                                                                                           |
+| `setup-indexes.test.ts`                                                                                               | Runs `scripts/setup-indexes.ts` under Bun on isolated DBs: creates, idempotent, refuses on conflicts/unnormalized data without changing it, stops on index-definition conflicts                                                                                                                                                                                       |
+| `auth.test.ts`                                                                                                        | Passwords, login, attempt limits (simultaneous attempts, per-address/email rotation, IPv6 /64, database-down and hashing-busy un-counting, per-account limit incl. emails without an account and address rotation, no shared bucket without an address), hashing concurrency bound, sessions/expiry, owner authorization, single owner, cookie options, config checks |
+| `client-address.test.ts`                                                                                              | Login client address: socket address off Workers (spoofed `CF-Connecting-IP` ignored), `CF-Connecting-IP` only on Workers, non-IP values give no address, IP validation, Workers detection by user agent (simulated; not run on workerd)                                                                                                                              |
+| `security-headers.test.ts`                                                                                            | Security headers: values, no-store, redirect/Set-Cookie/stream copying, HSTS gating and setting parsing, every return path of `src/server.ts` (mocked entry), `public/_headers` in sync                                                                                                                                                                               |
+| `server-errors.test.ts`                                                                                               | `toSafeError` and the real serializer payload (no stack)                                                                                                                                                                                                                                                                                                              |
+| `db.integration.test.ts`                                                                                              | Opt-in live ping (skipped unless `RUN_DB_INTEGRATION=1`)                                                                                                                                                                                                                                                                                                              |
+| `auth.e2e.test.ts`                                                                                                    | Opt-in E2E (skipped unless `RUN_AUTH_E2E=1`)                                                                                                                                                                                                                                                                                                                          |
 
 `bun run test:e2e` (`src/test/auth.e2e.test.ts`) — fails closed if isolation cannot be confirmed:
 
@@ -73,7 +74,9 @@ If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier
 2. `bun install --frozen-lockfile` in the copy; starts mongodb-memory-server on `127.0.0.1`.
 3. Runs the real `vite dev` in the copy with a fresh environment whose only `MONGODB_URI` is the
    throwaway database; drives Chrome via playwright-core and replays captured requests.
-4. Covers: `127.0.0.1` binding, login/logout/expiry, cookie attributes, CSRF (403), attempt limit,
+4. Covers: `127.0.0.1` binding, login/logout/expiry, cookie attributes, CSRF (403), attempt limit
+   (a real address is detected in dev; spoofed `CF-Connecting-IP` / `X-Forwarded-For` /
+   `X-Real-IP` on a replayed login are ignored),
    `/login` UI, `/owner/products` (guards, no cost, loading/empty/error states),
    `/owner/products/new` (creation, validation, duplicates, 5-way concurrent replays,
    server-controlled fields rejected), demo unchanged, leak scan of every response, security
@@ -94,7 +97,9 @@ expiry, owner-role check, attempt limit, inactive users, single-owner index, opt
 concurrency. On 2026-10-24: `safeErrors` on `getDatabaseHealth` (source check in `db.test.ts`
 failed when removed, passed when restored). Also on 2026-10-24, the ten login-hardening
 protections listed in [CHANGELOG.md](CHANGELOG.md) (login-hardening commit `42518cc`), and on 2026-10-25 the ten
-security-header protections listed there (security headers, commit `4711be0`).
+security-header protections listed there (security headers, commit `4711be0`). On 2026-10-27,
+the seven client-address / per-account protections listed there (unit), plus trusting
+`CF-Connecting-IP` off Workers (E2E: the spoofed replay signed in).
 
 ## Regenerating `src/routeTree.gen.ts` without loading `.env`
 
@@ -109,14 +114,16 @@ there with a minimal environment, then copy back only `src/routeTree.gen.ts`.
 - E2E needs Chrome and ~95–105 s; it is opt-in.
 - **Intermittent E2E failure (NOT root-caused, 2026-10-27):** in one of two full runs, the
   product list showed its empty state right after a product was created
-  (`auth.e2e.test.ts:734`); the other run passed. Rerun once before treating a failure there
+  (`auth.e2e.test.ts:739`); the other run passed. Rerun once before treating a failure there
   as a regression, and report both runs.
 - The per-address limit tests run up to ~40 real scrypt checks each, so they use a 60 s timeout.
   Each auth test gets fresh limiters; tests that share the process-wide hashing bound must not
   leave slots busy.
 - Browser `SameSite` enforcement is shown via cookie attributes and CSRF replays, not a real
   cross-site page.
-- The Cloudflare Workers runtime and the real Atlas database are not exercised by tests. HSTS is
+- The Cloudflare Workers runtime and the real Atlas database are not exercised by tests. The
+  Workers branch of the client address is unit-tested by simulating `navigator.userAgent`
+  only; real `CF-Connecting-IP` handling is NOT VERIFIED. HSTS is
   only unit-tested (E2E runs over http in dev mode); Cloudflare's handling of `_headers` is not
   tested.
 - `server-errors.test.ts` imports `seroval`, a transitive dependency of TanStack Start.

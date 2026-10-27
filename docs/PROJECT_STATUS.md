@@ -18,13 +18,13 @@ Luxe Retail OS is a mobile-first POS / back-office app for a small shop in Thail
 
 ## Git state (VERIFIED 2026-10-27, local repository only)
 
-| Item                            | Value                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Current branch                  | `feature/mongodb-foundation`, HEAD `4711be0`. No upstream configured; **not pushed** (no push made or recorded locally; GitHub not checked)                                                                                                                                                                                                                  |
-| Commits on branch, newest first | `4711be0` nil comit (security headers); `42518cc` fix: harden login rate limiting and password hashing; `9b961e1` docs: record completed foundation commits; `4da3c13` docs: add AI agent handbook and harden test isolation; `ced5535` feat: add secure owner authentication and product management foundation; `722d86f` Add MongoDB connection foundation |
-| `main`                          | `49aba5c`; matches `origin/main` according to the local remote-tracking ref (last updated 2026-10-23, not re-fetched)                                                                                                                                                                                                                                        |
-| Commits on branch not on `main` | `722d86f`, `ced5535`, `4da3c13`, `9b961e1`, `42518cc`, `4711be0`                                                                                                                                                                                                                                                                                             |
-| Local backup refs               | `refs/original/refs/heads/master` (`8d1fcda`), `refs/original-2/refs/heads/main` (`46b1fe8`): pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                                               |
+| Item                            | Value                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current branch                  | `feature/mongodb-foundation`, HEAD `cd76d76`; **Step 2 (login client address) uncommitted** in the working tree. No upstream configured; **not pushed** (no push made or recorded locally; GitHub not checked)                                                                                                                                                                                                                                  |
+| Commits on branch, newest first | `cd76d76` docs: sync status docs with git; add typecheck and format:check scripts; `4711be0` nil comit (security headers); `42518cc` fix: harden login rate limiting and password hashing; `9b961e1` docs: record completed foundation commits; `4da3c13` docs: add AI agent handbook and harden test isolation; `ced5535` feat: add secure owner authentication and product management foundation; `722d86f` Add MongoDB connection foundation |
+| `main`                          | `49aba5c`; matches `origin/main` according to the local remote-tracking ref (last updated 2026-10-23, not re-fetched)                                                                                                                                                                                                                                                                                                                           |
+| Commits on branch not on `main` | `722d86f`, `ced5535`, `4da3c13`, `9b961e1`, `42518cc`, `4711be0`, `cd76d76`                                                                                                                                                                                                                                                                                                                                                                     |
+| Local backup refs               | `refs/original/refs/heads/master` (`8d1fcda`), `refs/original-2/refs/heads/main` (`46b1fe8`): pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                                                                                                                                  |
 
 > **Committed, not pushed:** baseline security headers (`src/server.ts`,
 > `src/server/security-headers.server.ts`, `public/_headers`, `.env.example`, tests, docs) in
@@ -58,18 +58,18 @@ Details: [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [CHANGE
 
 ## Latest check results (VERIFIED 2026-10-27 unless dated)
 
-| Command                                                   | Result                                                                                                                                                                                                         |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | exit 0 (2026-10-23)                                                                                                                                                                                            |
-| `bun run typecheck` (`tsc --noEmit -p .`)                 | exit 0                                                                                                                                                                                                         |
-| `bun run lint`                                            | 0 errors, 11 warnings (pre-existing `react-refresh/only-export-components`)                                                                                                                                    |
-| `bun run format:check` (`prettier --check .`)             | exit 0, all files formatted                                                                                                                                                                                    |
-| `bun run test`                                            | 13 files passed, 2 skipped; **203 tests passed, 0 failed, 37 skipped** (opt-in suites)                                                                                                                         |
-| `bun run test:e2e`                                        | **35 passed, 0 failed, 1 skipped** (Chrome-not-found placeholder). Run twice on 2026-10-27: the first run had **1 intermittent failure** at `src/test/auth.e2e.test.ts:734` (see below); the second run passed |
+| Command                                                   | Result                                                                                                                                                                                                                                                                  |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | exit 0 (2026-10-23)                                                                                                                                                                                                                                                     |
+| `bun run typecheck` (`tsc --noEmit -p .`)                 | exit 0                                                                                                                                                                                                                                                                  |
+| `bun run lint`                                            | 0 errors, 11 warnings (pre-existing `react-refresh/only-export-components`)                                                                                                                                                                                             |
+| `bun run format:check` (`prettier --check .`)             | exit 0, all files formatted                                                                                                                                                                                                                                             |
+| `bun run test`                                            | 14 files passed, 2 skipped; **219 tests passed, 0 failed, 38 skipped** (opt-in suites; with Step 2)                                                                                                                                                                     |
+| `bun run test:e2e`                                        | **36 passed, 0 failed, 1 skipped** in both of two runs with Step 2 (Chrome-not-found placeholder). Earlier on 2026-10-27, before Step 2, one of two runs had **1 intermittent failure** at the product list (`src/test/auth.e2e.test.ts:739`, then line 734; see below) |
 
 **Intermittent E2E failure (NOT root-caused).** On one of two runs (2026-10-27), right after
 creating a product, `/owner/products` showed the empty state (`products-empty`) instead of the
-new product (`auth.e2e.test.ts:734`, "The list must load fresh"). Either a real stale-list bug
+new product (`auth.e2e.test.ts:739`, "The list must load fresh"). Either a real stale-list bug
 or a test race; see [ROADMAP.md](ROADMAP.md).
 
 Not run (they load `.env`): `bun run build`, `bun run dev`, `bun run test:db`, `bun run preview`. The E2E suite
@@ -87,19 +87,21 @@ builds production output in an isolated copy instead. See [TESTING.md](TESTING.m
 
 ## Next approved action
 
-**None in progress.** Step 1 of the 2026-10-27 review (documentation and tooling hygiene) is
-done in the working tree and awaits owner review; committing it needs approval. Pushing or merging the branch needs the owner's approval. Backend Step 3c has **not** been approved. Wait for the owner's explicit approval and
+**Owner review of Step 2** (login client address + per-account limit; uncommitted, see
+[CHANGELOG.md](CHANGELOG.md)). Committing it needs approval. Step 1 (docs/tooling hygiene) is
+committed as `cd76d76`. Pushing or merging the branch needs the owner's approval. Backend Step 3c has **not** been approved. Wait for the owner's explicit approval and
 scope before implementing anything new. Candidate next steps are listed (unapproved) in
 [ROADMAP.md](ROADMAP.md).
 
 ## Outstanding limitations
 
-- Commits `722d86f`, `ced5535`, `4da3c13`, `9b961e1`, `42518cc` and `4711be0` are local only
+- Commits `722d86f`, `ced5535`, `4da3c13`, `9b961e1`, `42518cc`, `4711be0` and `cd76d76` are local only
   (not pushed or merged into `main`).
 - E2E has one intermittent failure on the product list after creation (see above).
-- The login client address comes from `getRequestIP()`, falling back to the shared key
-  `"unknown"`; what it returns on Cloudflare Workers is NOT VERIFIED (if nothing, all visitors
-  would share one limit bucket).
+- Login client address (Step 2, uncommitted): `CF-Connecting-IP` on Cloudflare Workers only,
+  else the socket address; no shared fallback bucket; per-account limit 50 / 15 min. The
+  Workers path is NOT VERIFIED. Behind a proxy on a Node.js host all visitors would share the
+  proxy's address limit (trusted proxies not supported).
 - Mongoose and scrypt have never run under workerd / `wrangler dev`; the per-login scrypt CPU
   cost has not been measured.
 - Demo screens still use simulated data and roles; the real product pages are separate.

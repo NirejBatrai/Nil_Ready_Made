@@ -2,9 +2,16 @@
  * SERVER-ONLY bridge between HTTP (cookies, client IP) and the auth core. Only server function
  * handlers and middleware load this, through a server-side dynamic import.
  */
-import { deleteCookie, getCookie, getRequestIP, setCookie } from "@tanstack/react-start/server";
+import {
+  deleteCookie,
+  getCookie,
+  getRequestHeader,
+  getRequestIP,
+  setCookie,
+} from "@tanstack/react-start/server";
 import { database } from "@/server/db.server";
 import { createAuthService, type AuthUser } from "./auth.server";
+import { loginClientAddress } from "./client-address.server";
 import { sessionCookieName, sessionCookieOptions } from "./cookie.server";
 
 const PRODUCTION = import.meta.env.PROD;
@@ -13,8 +20,12 @@ const COOKIE = sessionCookieName(PRODUCTION);
 export async function loginWithCookie(
   input: unknown,
 ): Promise<{ ok: true; user: Pick<AuthUser, "name" | "role"> } | { ok: false; error: string }> {
-  // The socket address; X-Forwarded-For is ignored because clients can forge it.
-  const ip = getRequestIP() ?? "unknown";
+  // CF-Connecting-IP on Cloudflare Workers only, else the socket address (getRequestIP() without
+  // options ignores X-Forwarded-For); undefined if neither is an IP address.
+  const ip = loginClientAddress({
+    socketIp: getRequestIP(),
+    cfConnectingIp: getRequestHeader("cf-connecting-ip"),
+  });
   const result = await database.withDatabase((conn) => createAuthService(conn).login(input, ip));
   if (!result.ok) return result;
   setCookie(COOKIE, result.token, sessionCookieOptions(PRODUCTION, result.expiresAt));

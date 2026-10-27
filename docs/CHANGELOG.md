@@ -4,7 +4,41 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
-## 2026-10-27 — Status review and documentation/tooling hygiene (uncommitted, awaiting owner review)
+## 2026-10-27 — Step 2: login client address and per-account limit (uncommitted, awaiting owner review)
+
+- Problem: `session-context.server.ts` used `getRequestIP() ?? "unknown"`, so if no address was
+  available every client shared one bucket and 20 failures from anyone blocked everyone.
+- Inspected (installed code): off Workers, `getRequestIP()` (h3) returns srvx's `request.ip`,
+  the socket address (srvx trusts no proxy unless `trustProxy` is set; it is not). In the
+  Cloudflare build, Nitro's handler copies `CF-Connecting-IP` into `request.ip`.
+- New `src/server/auth/client-address.server.ts`: `CF-Connecting-IP` only when
+  `navigator.userAgent === "Cloudflare-Workers"` (runtime property; on by default for
+  compatibility dates after 2022-03-21; Node.js reports `Node.js/<version>`), otherwise the
+  socket address; headers never trusted off Workers; no proxy-trust setting; anything that is
+  not an IP address gives no address.
+- `auth.server.ts`: `login(input, ip: string | undefined)`. Without an address the per-address
+  and per-email + address limits are skipped. New per-account limit `LOGIN_ACCOUNT_LIMIT` (50
+  per normalized email per 15 min, also for emails without an account) through the existing
+  `createLoginLimiter` (10 000-key cap). Same atomic count-before-await; a refusal un-counts the
+  limits already passed; no-verdict attempts un-count all three; a correct password does not
+  count against the account. Generic errors and scrypt parameters unchanged.
+- Decision: fixed threshold (50, at least 10 addresses needed to block the owner) instead of
+  progressive backoff; trusted proxies not supported (documented as a limitation for a Node.js
+  host behind a load balancer).
+- Tests: `client-address.test.ts` (5), 11 new tests in `auth.test.ts` (per-account limit, no
+  shared bucket, source check of the login bridge), E2E replay of the captured login with
+  spoofed `CF-Connecting-IP` / `X-Forwarded-For` / `X-Real-IP` while 127.0.0.1 is blocked.
+- Mutation tests (each applied → targeted test failed → restored byte-identical, SHA-256):
+  header trusted off Workers (unit + **E2E: the spoofed replay signed in as the owner**);
+  shared `"unknown"` key in `login`; per-account check disabled; account refusal not
+  un-counting address/email limits; database error counted against the account; correct
+  password counted against the account; `"unknown"` fallback in the login bridge.
+- Results: `bun run typecheck` exit 0; lint 0 errors / 11 warnings; `bun run format:check`
+  exit 0; `bun run test` 219 passed, 0 failed, 38 skipped; `bun run test:e2e` run twice: 36
+  passed, 0 failed, 1 skipped both times (the known flake at the product list did not recur).
+- NOT VERIFIED: anything on workerd / Cloudflare (`navigator.userAgent`, `CF-Connecting-IP`).
+
+## 2026-10-27 — Status review and documentation/tooling hygiene (commit `cd76d76`)
 
 - Read-only status review found the docs out of date: the security-headers work had been
   committed on 2026-10-25 as `4711be0` (message "nil comit"), on top of `42518cc` (login

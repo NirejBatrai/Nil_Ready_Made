@@ -109,7 +109,7 @@ functions, and choosing a demo role creates no session (tested in E2E).
 
 1. Owner account created **locally** by the owner with `bun run auth:create-owner` (no web route).
 2. `/login` → `login` server function → `auth.server.ts` verifies the scrypt hash, applies the
-   attempt limit, creates a session (stores SHA-256 of a random token), and `session-context`
+   attempt limits (client address from `client-address.server.ts`), creates a session (stores SHA-256 of a random token), and `session-context`
    sets the HttpOnly cookie.
 3. Protected pages use `beforeLoad` → `getCurrentUser` to redirect signed-out visitors (cosmetic).
 4. Every protected server function runs `requireOwner`, which re-reads the session **and** the

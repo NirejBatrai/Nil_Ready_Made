@@ -13,33 +13,56 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
 
 ## Authentication
 
-| Item             | Implementation                                                                                                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Accounts         | One owner (`users.role` enum is `["owner"]`); DB index `single_owner` allows only one                                                                                           |
-| Owner creation   | **Local only**: `bun run auth:create-owner` (hidden password prompt; refuses if an owner exists). No public registration route or server function exists.                       |
-| Password hashing | Node `crypto.scrypt`, N=2^15, r=8, p=3, 16-byte salt, 64-byte key, `timingSafeEqual`; stored as `scrypt$N$r$p$salt$key`; out-of-bounds stored params rejected                   |
-| Password policy  | 10–128 characters (NFKC-normalized)                                                                                                                                             |
-| Login errors     | Always "Email or password is incorrect."; unknown emails are checked against a dummy hash (timing)                                                                              |
-| Attempt limit    | Two in-memory limits (reset on restart; one process), both per 15 minutes: **5 per email + address** and **20 per address across all emails** (stops email rotation). See below |
-| Hash concurrency | At most **2** scrypt derivations at once (≈64 MiB) and **8** waiting, per process; beyond that login answers "Too many attempts" without hashing                                |
-| Inactive users   | Cannot log in; existing sessions stop working immediately                                                                                                                       |
+| Item             | Implementation                                                                                                                                                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Accounts         | One owner (`users.role` enum is `["owner"]`); DB index `single_owner` allows only one                                                                                                                                                            |
+| Owner creation   | **Local only**: `bun run auth:create-owner` (hidden password prompt; refuses if an owner exists). No public registration route or server function exists.                                                                                        |
+| Password hashing | Node `crypto.scrypt`, N=2^15, r=8, p=3, 16-byte salt, 64-byte key, `timingSafeEqual`; stored as `scrypt$N$r$p$salt$key`; out-of-bounds stored params rejected                                                                                    |
+| Password policy  | 10–128 characters (NFKC-normalized)                                                                                                                                                                                                              |
+| Login errors     | Always "Email or password is incorrect."; unknown emails are checked against a dummy hash (timing)                                                                                                                                               |
+| Attempt limit    | Three in-memory limits (reset on restart; one process), all per 15 minutes: **5 per email + address**, **20 per address across all emails** (stops email rotation) and **50 per email across all addresses** (stops address rotation). See below |
+| Hash concurrency | At most **2** scrypt derivations at once (≈64 MiB) and **8** waiting, per process; beyond that login answers "Too many attempts" without hashing                                                                                                 |
+| Inactive users   | Cannot log in; existing sessions stop working immediately                                                                                                                                                                                        |
 
-### Login attempt limits (`src/server/auth/auth.server.ts`, VERIFIED 2026-10-24)
+### Login attempt limits (`src/server/auth/auth.server.ts`, VERIFIED 2026-10-24, updated 2026-10-27)
 
-- **Address**: the socket IP (`X-Forwarded-For` is ignored because clients can forge it). IPv6
-  is counted per **/64** (one user usually controls a whole /64); IPv4-mapped IPv6 counts as its
-  IPv4 address; unparseable values (e.g. `unknown`) are counted exactly as given.
-- **Counted before hashing, atomically**: both limits are checked and the attempt is counted in
-  one synchronous step before any `await`, so simultaneous requests cannot all pass (30 at once
-  → exactly 5 password checks). If the per-email limit refuses, the address count is undone.
-- **Wrong password, unknown email, inactive account**: stays counted in both limits.
+- **Address** (`src/server/auth/client-address.server.ts`, 2026-10-27):
+  - **On Cloudflare Workers** (detected by `navigator.userAgent === "Cloudflare-Workers"`, a
+    property of the runtime that requests cannot change): `CF-Connecting-IP`, which Cloudflare's
+    edge sets and overwrites. **NOT VERIFIED** on workerd or a deployment.
+  - **Everywhere else** (Node.js, Bun, `vite dev`): the socket address from `getRequestIP()`
+    (no options, so `X-Forwarded-For` is not read; srvx trusts no proxy by default). Every
+    header is ignored, including `CF-Connecting-IP`, `X-Forwarded-For` and `X-Real-IP`
+    (unit- and E2E-tested). There is **no setting** to trust proxy headers.
+  - A value that is not an IPv4/IPv6 address counts as **no address**. There is never a shared
+    fallback key (the old `"unknown"` fallback is gone).
+  - IPv6 is counted per **/64** (one user usually controls a whole /64); IPv4-mapped IPv6 counts
+    as its IPv4 address.
+- **No address known**: the per-address and per-email + address limits are skipped; only the
+  per-email (account) limit applies. One unknown-address client therefore cannot lock out
+  another (unit-tested).
+- **Per-email (account) limit, 50 per 15 minutes**: keyed on the normalized email (trimmed,
+  lower-case), counted for emails with no account exactly as for real ones (same responses, so
+  it reveals nothing). Same limiter as the others, so memory is capped at 10 000 keys.
+  **Tradeoff:** any per-account limit lets an attacker block that account. A fixed threshold
+  well above the address limit was chosen over progressive backoff (simpler, same race-safe
+  counting): one address adds at most 5 per email, so blocking the owner needs **at least 10
+  different addresses** (IPv6: /64s) within 15 minutes, and the block ends 15 minutes after the
+  attack stops. In return a botnet gets at most 50 password checks per 15 minutes on the owner
+  account (before: unlimited across addresses).
+- **Counted before hashing, atomically**: all applicable limits are checked and the attempt is
+  counted in one synchronous step before any `await`, so simultaneous requests cannot all pass
+  (30 at once → exactly 5 password checks). If a later limit refuses, the earlier counts are
+  undone.
+- **Wrong password, unknown email, inactive account**: stays counted in all limits.
 - **Correct password**: clears the per-email + address count and does not count against the
-  address (failures by others from that address stay counted).
-- **No verdict** (database error, or hashing busy): un-counted in both limits, so an outage or
+  address or the account (failures by others stay counted, so signing in does not reset an
+  attacker's count).
+- **No verdict** (database error, or hashing busy): un-counted in all limits, so an outage or
   overload does not lock the owner out later. Hashing busy answers "Too many attempts. Try again
   later."; a database error answers "Database unavailable.".
 - **Effect of an attack**: one address gets at most 20 password checks per 15 minutes in total
-  and 5 per email. The owner signing in from a **different** address is unaffected; from the
+  and 5 per email; all addresses together get at most 50 per email. The owner signing in from a **different** address is unaffected; from the
   attacking address they must wait for the window to pass.
 - The hashing limit releases its slot in `finally`, so failed derivations never leak a slot.
 
@@ -187,12 +210,16 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
 - In-memory login limits and hashing bound: reset on restart and are per process (on Cloudflare
   Workers, per isolate), so several instances each allow their own quota. A shared store is not
   built.
-- The login address is `getRequestIP()`, or the shared key `"unknown"` when it returns nothing
-  (`session-context.server.ts`). If that happens for every request on the real host, all
-  visitors share one address limit (20 per 15 minutes), so anyone could block the owner's
-  login. What it returns on Cloudflare Workers is NOT VERIFIED.
-- Many different addresses (a botnet) each get their own quota; there is deliberately no global
-  per-email limit, because it would let anyone lock the owner out.
+- Client address on Cloudflare Workers (`CF-Connecting-IP`, runtime detection) is NOT VERIFIED
+  on workerd or a deployment. If it were missing there, every login would fall back to the
+  per-account limit only (no shared bucket, but no per-address limit either).
+- Behind a TLS-terminating proxy or load balancer on a Node.js host, the socket address is the
+  proxy's, so all visitors would share the proxy's address limit (20 per 15 minutes). Trusted
+  proxy handling is not built (no setting exists); it would need its own approved step.
+- The per-account limit (50 per 15 minutes) lets attackers with at least 10 addresses block the
+  owner's login while the attack lasts. Without an address, an attacker can also push the
+  owner's count out of the 10 000-key cap by flooding other emails (bounded by the hashing
+  limit), regaining part of the allowance.
 - An attacker who keeps the hashing limit full makes every login answer "Too many attempts"
   until the attack stops (resources stay bounded; availability does not).
 - Every login request, including throttled ones, opens the database connection first
