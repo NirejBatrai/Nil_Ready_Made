@@ -113,6 +113,7 @@ functions, and choosing a demo role creates no session (tested in E2E).
 | ----------------------- | ------ | ---------------------------- | --------------------------------------------------------- |
 | `login`                 | POST   | `safeErrors`                 | Verify credentials, set session cookie                    |
 | `logout`                | POST   | `safeErrors`                 | Delete session, clear cookie                              |
+| `signOutEverywhere`     | POST   | `safeErrors` + valid session | Delete all of the user's sessions, clear cookie           |
 | `getCurrentUser`        | GET    | `safeErrors`                 | Name and role only, or `null`                             |
 | `getProductForOwner`    | GET    | `safeErrors`, `requireOwner` | One product **including cost** (used only by `/dev/auth`) |
 | `listProductsForOwner`  | GET    | `safeErrors`, `requireOwner` | Active products, **never cost**                           |
@@ -137,7 +138,7 @@ Details and parameters: [SECURITY.md](SECURITY.md).
 | Collection | Model file                 | Key points                                                                                                                                                                                                     |
 | ---------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `users`    | `models/user.server.ts`    | `role` enum is `owner` only; `passwordHash` `select:false`; unique email; `single_owner` partial unique index                                                                                                  |
-| `sessions` | `models/session.server.ts` | `_id` = SHA-256 of token; `expiresAt` with TTL cleanup index                                                                                                                                                   |
+| `sessions` | `models/session.server.ts` | `_id` = SHA-256 of token; `expiresAt` with TTL cleanup index; `userId` index; optional `createdIp`, `userAgent` (≤ 256), `lastSeenAt`; at most 5 per user                                                      |
 | `products` | `models/product.server.ts` | Whole-baht money; per-product `minimumSellingPrice`; `cost` `select:false`; embedded variants (`sku`, `barcode`, `openingStock`, `stock`); optimistic concurrency; query updates touching pricing are rejected |
 
 Product indexes (case-insensitive collation `{ locale: "en", strength: 2 }`, all unique):

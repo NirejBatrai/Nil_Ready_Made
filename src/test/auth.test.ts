@@ -7,20 +7,23 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import mongoose, { type Connection } from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AuthError,
   createAuthService,
   createLoginLimiter,
   ensureAuthIndexes,
+  LAST_SEEN_INTERVAL_MS,
   LOGIN_ACCOUNT_LIMIT,
   LOGIN_ADDRESS_LIMIT,
   LOGIN_FAILED,
   LOGIN_THROTTLED,
   loginAddressKey,
+  MAX_SESSIONS_PER_USER,
   NOT_ALLOWED,
   NOT_SIGNED_IN,
   SESSION_TTL_MS,
+  USER_AGENT_MAX_LENGTH,
 } from "@/server/auth/auth.server";
 import { sessionCookieName, sessionCookieOptions } from "@/server/auth/cookie.server";
 import {
@@ -564,6 +567,182 @@ describe("sessions: lookup, expiry, logout", () => {
     await signIn();
     for (const t of [undefined, "", "short", "A".repeat(43), { $ne: null }, ["x"]])
       expect(await auth.resolveSession(t)).toBeUndefined();
+  });
+});
+
+describe("sessions: revocation and login hygiene", () => {
+  const sha256 = (token: string) => createHash("sha256").update(token).digest("hex");
+  const stored = (token: string) => sessionModel(conn).findById(sha256(token)).lean();
+
+  /** A second account, written directly because the schema only allows the owner role. */
+  async function addStaff() {
+    if (!conn.db) throw new Error("not connected");
+    type RawUser = {
+      _id: string;
+      email: string;
+      name: string;
+      role: string;
+      passwordHash: string;
+      active: boolean;
+    };
+    await conn.db.collection<RawUser>("users").insertOne({
+      _id: "usr_staff",
+      email: "staff@example.invalid",
+      name: "Staff",
+      role: "employee",
+      passwordHash: await hashPassword(PASSWORD),
+      active: true,
+    });
+    const r = await auth.login({ email: "staff@example.invalid", password: PASSWORD }, IP);
+    if (!r.ok) throw new Error(r.error);
+    return r;
+  }
+
+  it("revokeAllSessions ends every session of that user and only that user's", async () => {
+    const first = await signIn();
+    const owner = [first, await signIn(), await signIn()];
+    const staff = await addStaff();
+    expect(await auth.revokeAllSessions(first.user.id)).toBe(3);
+    for (const s of owner) expect(await auth.resolveSession(s.token)).toBeUndefined();
+    expect(await auth.resolveSession(staff.token)).toMatchObject({ name: "Staff" });
+    expect(await sessionModel(conn).countDocuments()).toBe(1);
+    expect(await auth.revokeAllSessions("usr_nobody")).toBe(0);
+  });
+
+  it("sign out everywhere ends this session and the user's other sessions", async () => {
+    const here = await signIn();
+    const elsewhere = await signIn();
+    const staff = await addStaff();
+    await auth.signOutEverywhere(here.token);
+    expect(await auth.resolveSession(here.token)).toBeUndefined();
+    expect(await auth.resolveSession(elsewhere.token)).toBeUndefined();
+    expect(await auth.resolveSession(staff.token)).toBeDefined();
+  });
+
+  it("sign out everywhere needs a valid session and then deletes nothing", async () => {
+    const kept = await signIn();
+    for (const t of [undefined, "A".repeat(43), { $ne: null }])
+      await expect(auth.signOutEverywhere(t)).rejects.toThrow(new AuthError(NOT_SIGNED_IN));
+    expect(await auth.resolveSession(kept.token)).toBeDefined();
+  });
+
+  it("deletes the session presented at login once the new one exists", async () => {
+    const old = await signIn();
+    const r = await auth.login({ email: EMAIL, password: PASSWORD }, IP, {
+      previousToken: old.token,
+    });
+    if (!r.ok) throw new Error(r.error);
+    expect(await auth.resolveSession(old.token)).toBeUndefined();
+    expect(await stored(old.token)).toBeNull();
+    expect(await auth.resolveSession(r.token)).toBeDefined();
+    expect(await sessionModel(conn).countDocuments()).toBe(1);
+  });
+
+  it("a junk or query-object previous token deletes nothing", async () => {
+    const other = await signIn();
+    for (const previousToken of ["short", { $ne: null }, ["x"], 42]) {
+      const r = await auth.login({ email: EMAIL, password: PASSWORD }, IP, { previousToken });
+      if (!r.ok) throw new Error(r.error);
+    }
+    expect(await auth.resolveSession(other.token)).toBeDefined();
+    expect(await sessionModel(conn).countDocuments()).toBe(MAX_SESSIONS_PER_USER);
+  });
+
+  it(`keeps only the newest ${MAX_SESSIONS_PER_USER} sessions per user`, async () => {
+    expect(MAX_SESSIONS_PER_USER).toBe(5);
+    const staff = await addStaff();
+    const tokens: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      clock += 1000;
+      tokens.push((await signIn()).token);
+    }
+    expect(await sessionModel(conn).countDocuments({ userId: { $ne: "usr_staff" } })).toBe(5);
+    for (const t of tokens.slice(0, 2)) expect(await auth.resolveSession(t)).toBeUndefined();
+    for (const t of tokens.slice(2)) expect(await auth.resolveSession(t)).toBeDefined();
+    // Another user's sessions do not count against this user's cap.
+    expect(await auth.resolveSession(staff.token)).toBeDefined();
+  });
+
+  it("the cap never removes the session just created, even with identical timestamps", async () => {
+    for (let i = 0; i < 8; i++) {
+      const { token } = await signIn();
+      expect(await auth.resolveSession(token)).toBeDefined();
+    }
+    expect(await sessionModel(conn).countDocuments()).toBe(5);
+  });
+
+  it("stores the client address, a truncated User-Agent and lastSeenAt on the session", async () => {
+    const ua = `Mozilla/5.0 ${"x".repeat(400)}`;
+    const r = await auth.login({ email: EMAIL, password: PASSWORD }, IP, { userAgent: ua });
+    if (!r.ok) throw new Error(r.error);
+    const doc = await stored(r.token);
+    expect(doc?.createdIp).toBe(IP);
+    expect(doc?.userAgent).toBe(ua.slice(0, USER_AGENT_MAX_LENGTH));
+    expect(doc?.userAgent).toHaveLength(256);
+    expect(doc?.lastSeenAt?.getTime()).toBe(clock);
+    // No address known: stored as null. A missing or non-string User-Agent is not stored.
+    for (const userAgent of [undefined, "", ["Mozilla"], { a: 1 }]) {
+      const n = await auth.login({ email: EMAIL, password: PASSWORD }, undefined, { userAgent });
+      if (!n.ok) throw new Error(n.error);
+      const d = await stored(n.token);
+      expect(d?.createdIp).toBeNull();
+      expect(d?.userAgent).toBeUndefined();
+    }
+  });
+
+  it("updates lastSeenAt at most once every 5 minutes, not on every request", async () => {
+    expect(LAST_SEEN_INTERVAL_MS).toBe(5 * 60 * 1000);
+    const { token } = await signIn();
+    const loginAt = clock;
+    // The service uses the same model object, so this counts its database writes.
+    const writes = vi.spyOn(sessionModel(conn), "updateOne");
+    try {
+      for (let i = 0; i < 5; i++) {
+        clock += 59_000; // 4 min 55 s in total: still inside the interval
+        expect(await auth.resolveSession(token)).toBeDefined();
+        expect((await stored(token))?.lastSeenAt?.getTime()).toBe(loginAt);
+      }
+      expect(writes).not.toHaveBeenCalled();
+      clock = loginAt + LAST_SEEN_INTERVAL_MS;
+      await auth.resolveSession(token);
+      expect((await stored(token))?.lastSeenAt?.getTime()).toBe(clock);
+      expect(writes).toHaveBeenCalledTimes(1);
+      const seenAt = clock;
+      clock += 60_000;
+      await auth.resolveSession(token);
+      expect((await stored(token))?.lastSeenAt?.getTime()).toBe(seenAt);
+      expect(writes).toHaveBeenCalledTimes(1);
+    } finally {
+      writes.mockRestore();
+    }
+  });
+
+  it("a session stored before these fields existed keeps working (no migration)", async () => {
+    const owner = await userModel(conn).findOne({ email: EMAIL }).lean();
+    if (!owner || !conn.db) throw new Error("no owner");
+    const token = "L".repeat(43); // valid format; legacy record written with the old shape only
+    type LegacySession = { _id: string; userId: string; expiresAt: Date; createdAt: Date };
+    await conn.db.collection<LegacySession>("sessions").insertOne({
+      _id: sha256(token),
+      userId: owner._id,
+      expiresAt: new Date(clock + 60_000),
+      createdAt: new Date(clock),
+    });
+    expect(await auth.resolveSession(token)).toMatchObject({ name: "Test Owner", role: "owner" });
+    await expect(auth.requireOwner(token)).resolves.toMatchObject({ role: "owner" });
+    expect((await stored(token))?.lastSeenAt?.getTime()).toBe(clock);
+    // It counts towards the cap and is revoked like any other session.
+    const fresh = await signIn();
+    await auth.signOutEverywhere(fresh.token);
+    expect(await auth.resolveSession(token)).toBeUndefined();
+  });
+
+  it("session metadata is never logged by the auth code", () => {
+    for (const file of [
+      "src/server/auth/auth.server.ts",
+      "src/server/auth/session-context.server.ts",
+    ])
+      expect(readFileSync(file, "utf8"), file).not.toMatch(/console\./);
   });
 });
 

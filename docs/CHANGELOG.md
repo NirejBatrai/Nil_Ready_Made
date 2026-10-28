@@ -4,6 +4,31 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-10-28 — Step 7a: session revocation and login session hygiene
+
+- `revokeAllSessions(userId)` (deletes every session of the user via the `userId` index) and a
+  `signOutEverywhere` server function (POST, needs a valid session, revokes all of that user's
+  sessions including the current one, clears the cookie). "Sign out everywhere" button on the
+  signed-in card of `/login` (existing button styling), which then shows `/login`'s sign-in form.
+- Login: the session cookie presented at login is deleted after the new session is created; each
+  user keeps at most 5 sessions (oldest deleted; the new one always kept; soft cap under
+  simultaneous logins); sessions store `createdIp` (or `null`), `userAgent` (≤ 256 characters)
+  and `lastSeenAt` (written at most every 5 minutes). Never logged. No idle timeout (Step 7b).
+- Unchanged: token generation/hashing, 7-day absolute expiry, per-request role re-read, rate
+  limits, generic errors, CSRF.
+- Old sessions without the new fields keep working (fields optional; no migration; tested).
+- Tests: 11 new unit tests (`auth.test.ts`), an E2E "sign out everywhere" test with a second
+  browser context, and a CSRF check (403 cross-site / no origin, 200 same-origin) against the
+  built Node server. Mutation checks: 9 protections removed one at a time, each caught, each file
+  restored byte-identical. A first version also had a database-side throttle filter for
+  `lastSeenAt`; no test could observe it (the in-code check already prevents the write), so it
+  was removed.
+- Docs: SECURITY session lifecycle + PDPA note (IP/User-Agent stored for security, deleted with
+  the session, never logged); ROADMAP: run `db:setup-indexes` on every deploy (required before
+  any real deployment) and Step 7b (idle timeout / PIN lock) planned.
+- Checks: typecheck, lint (0 errors, 11 known warnings), format check, `bun run test` (230 passed,
+  39 skipped), `bun run test:e2e` (37 passed, 1 skipped).
+
 ## 2026-10-28 — Step 5b: build target Node server
 
 - `vite.config.ts`: `nitro: { preset: "node-server" }` (installed Nitro `3.0.260603-beta`),

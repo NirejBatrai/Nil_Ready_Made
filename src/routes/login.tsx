@@ -8,6 +8,8 @@
  *   written to localStorage/sessionStorage or logged.
  * - The form uses method="post" and its button stays disabled until React has hydrated, so a
  *   native submit can never put the password into a URL.
+ * - "Sign out everywhere" ends every session of this account (other devices too), then shows the
+ *   sign-in form again.
  */
 import { useEffect, useState, type FormEvent } from "react";
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
@@ -15,7 +17,7 @@ import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getCurrentUser, login, logout } from "@/lib/auth";
+import { getCurrentUser, login, logout, signOutEverywhere } from "@/lib/auth";
 import { SAFE_MESSAGES } from "@/lib/server-errors";
 
 /** Server messages are already generic; database trouble gets a friendlier explanation. */
@@ -96,6 +98,20 @@ function LoginPage() {
     }
   };
 
+  const signOutAll = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await signOutEverywhere();
+      await navigate({ to: "/login" });
+      await router.invalidate();
+    } catch (err) {
+      setError(friendlyAuthMessage(err instanceof Error ? err.message : ""));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-5 py-12">
       <main className="w-full max-w-sm">
@@ -131,6 +147,15 @@ function LoginPage() {
               onClick={signOut}
             >
               {busy ? "Signing out…" : "Log out"}
+            </Button>
+            <Button
+              data-testid="logout-everywhere-button"
+              className="w-full"
+              variant="ghost"
+              disabled={!hydrated || busy}
+              onClick={signOutAll}
+            >
+              Sign out everywhere
             </Button>
             <Link
               to="/owner/products"

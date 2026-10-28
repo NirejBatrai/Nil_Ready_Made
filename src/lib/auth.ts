@@ -57,6 +57,15 @@ export const logout = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+/** Ends every session of the signed-in user, on all devices (this one included). */
+export const signOutEverywhere = createServerFn({ method: "POST" })
+  .middleware([safeErrors])
+  .handler(async () => {
+    const { signOutEverywhereWithCookie } = await import("@/server/auth/session-context.server");
+    await signOutEverywhereWithCookie();
+    return { ok: true as const };
+  });
+
 /** Name and role only; never ids, emails, hashes or session data. */
 export const getCurrentUser = createServerFn({ method: "GET" })
   .middleware([safeErrors])

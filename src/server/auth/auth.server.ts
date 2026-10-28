@@ -13,6 +13,12 @@
  * - Password hashing is bounded per process (see password.server.ts); when it is full, login
  *   answers "Too many attempts" without hashing.
  * - Sessions last 7 days from login. Only the SHA-256 hash of the token is stored.
+ * - Login hygiene: a session cookie presented at login is deleted once the new session exists,
+ *   and each user keeps at most 5 sessions (the oldest are deleted). The cap is soft under
+ *   simultaneous logins: each login only trims what it can see, so the count settles at 5 once
+ *   they finish, but may briefly be higher.
+ * - Each session records its client address, User-Agent (truncated) and last use (written at
+ *   most every 5 minutes). These are never logged. There is no idle timeout yet.
  * - The user record is re-read on every request: deactivation takes effect immediately.
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -30,6 +36,10 @@ import {
 } from "./password.server";
 
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const MAX_SESSIONS_PER_USER = 5;
+/** `lastSeenAt` is written at most this often per session, not on every request. */
+export const LAST_SEEN_INTERVAL_MS = 5 * 60 * 1000;
+export const USER_AGENT_MAX_LENGTH = 256;
 export const LOGIN_LIMIT = { maxFailures: 5, windowMs: 15 * 60 * 1000 } as const;
 /** Per address across all emails, so one address cannot rotate emails for more password checks. */
 export const LOGIN_ADDRESS_LIMIT = { maxFailures: 20, windowMs: 15 * 60 * 1000 } as const;
@@ -57,6 +67,13 @@ export interface AuthUser {
   id: string;
   name: string;
   role: UserRole;
+}
+
+/** Request details recorded on a new session; none of them is required. */
+export interface LoginContext {
+  /** The session token from the request's cookie, if any: deleted after the new login. */
+  previousToken?: unknown;
+  userAgent?: unknown;
 }
 
 // 32 random bytes in base64url is exactly 43 characters.
@@ -180,7 +197,30 @@ export function createAuthService(
     }
     const user = await db(() => Users.findById(session.userId));
     if (!user?.active) return undefined;
+    const at = now();
+    // At most one write per session every 5 minutes. Sessions from before this field existed
+    // get it on their first use. Two requests at the same moment may both write; harmless.
+    if (!session.lastSeenAt || at.getTime() - session.lastSeenAt.getTime() >= LAST_SEEN_INTERVAL_MS)
+      await db(() => Sessions.updateOne({ _id: id }, { $set: { lastSeenAt: at } }));
     return { id: user._id, name: user.name, role: user.role };
+  }
+
+  /** Deletes every session of this user (all devices); returns how many were deleted. */
+  async function revokeAllSessions(userId: string): Promise<number> {
+    const result = await db(() => Sessions.deleteMany({ userId }));
+    return result.deletedCount;
+  }
+
+  /** Keeps the new session and the newest others, up to MAX_SESSIONS_PER_USER in total. */
+  async function trimSessions(userId: string, keepId: string): Promise<void> {
+    const extra = await db(() =>
+      Sessions.find({ userId, _id: { $ne: keepId } }, { _id: 1 })
+        .sort({ expiresAt: -1, _id: -1 })
+        .skip(MAX_SESSIONS_PER_USER - 1)
+        .lean(),
+    );
+    if (extra.length > 0)
+      await db(() => Sessions.deleteMany({ _id: { $in: extra.map((s) => s._id) } }));
   }
 
   return {
@@ -188,6 +228,7 @@ export function createAuthService(
     async login(
       input: unknown,
       ip: string | undefined,
+      context: LoginContext = {},
     ): Promise<
       { ok: true; token: string; expiresAt: Date; user: AuthUser } | { ok: false; error: string }
     > {
@@ -235,8 +276,31 @@ export function createAuthService(
       if (address !== undefined) addressLimiter.cancel(address, at);
       accountLimiter.cancel(email, at);
       const token = newToken();
+      const id = hashToken(token);
       const expiresAt = new Date(at + SESSION_TTL_MS);
-      await db(() => Sessions.create({ _id: hashToken(token), userId: user._id, expiresAt }));
+      const userAgent =
+        typeof context.userAgent === "string" && context.userAgent
+          ? context.userAgent.slice(0, USER_AGENT_MAX_LENGTH)
+          : undefined;
+      await db(() =>
+        Sessions.create({
+          _id: id,
+          userId: user._id,
+          expiresAt,
+          createdIp: ip ?? null,
+          userAgent,
+          lastSeenAt: new Date(at),
+        }),
+      );
+      // The browser's previous session (any user) is replaced by this one, so end it for good.
+      const previous = context.previousToken;
+      if (
+        typeof previous === "string" &&
+        TOKEN_PATTERN.test(previous) &&
+        hashToken(previous) !== id
+      )
+        await db(() => Sessions.deleteOne({ _id: hashToken(previous) }));
+      await trimSessions(user._id, id);
       return {
         ok: true,
         token,
@@ -246,6 +310,18 @@ export function createAuthService(
     },
 
     resolveSession,
+
+    revokeAllSessions,
+
+    /**
+     * "Sign out everywhere": ends every session of the token's user, this one included.
+     * Throws AuthError("Not signed in.") without a valid session.
+     */
+    async signOutEverywhere(token: unknown): Promise<void> {
+      const user = await resolveSession(token);
+      if (!user) throw new AuthError(NOT_SIGNED_IN);
+      await revokeAllSessions(user.id);
+    },
 
     /** Deletes the session if it exists. Safe to call with any value. */
     async logout(token: unknown): Promise<void> {

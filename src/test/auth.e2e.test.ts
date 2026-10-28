@@ -13,6 +13,7 @@
  * Requires a local Google Chrome (CHROME_PATH or /usr/bin/google-chrome); skipped without it.
  */
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
@@ -890,6 +891,52 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       });
     });
 
+    it("sign out everywhere ends this browser's session and the owner's session on another device", async () => {
+      if (!browser || !conn) throw new Error("no browser or test db");
+      const sessions = sessionModel(conn);
+      const stored = (token: string) =>
+        sessions.findById(createHash("sha256").update(token).digest("hex")).lean();
+      await loginPage.goto(`${base}/login`, { waitUntil: "networkidle" });
+      await submitLogin(EMAIL, PASSWORD);
+      await loginPage.getByTestId("signed-in").waitFor();
+      // A second device: its own browser context, so its own cookie jar.
+      const other = await browser.newContext();
+      try {
+        const otherPage = await other.newPage();
+        await otherPage.goto(`${base}/login?redirect=%2Fowner%2Fproducts`, {
+          waitUntil: "networkidle",
+        });
+        await otherPage.waitForSelector('[data-testid="login-submit"]:not([disabled])');
+        await otherPage.getByTestId("login-email").fill(EMAIL);
+        await otherPage.getByTestId("login-password").fill(PASSWORD);
+        await otherPage.getByTestId("login-submit").click();
+        await otherPage.waitForURL(`${base}/owner/products`);
+        const here = (await sessionCookie())?.value;
+        const there = (await other.cookies()).find((c) => c.name === COOKIE)?.value;
+        if (!here || !there) throw new Error("both devices should be signed in");
+        // Each session records the login address and browser (stored, never logged).
+        for (const token of [here, there]) {
+          const doc = await stored(token);
+          expect(doc?.createdIp).toMatch(/127\.0\.0\.1/);
+          expect(doc?.userAgent).toMatch(/Chrome/);
+          expect(doc?.lastSeenAt).toBeInstanceOf(Date);
+        }
+
+        await loginPage.getByTestId("logout-everywhere-button").click();
+        await loginPage.waitForSelector('[data-testid="login-form"]');
+        expect(new URL(loginPage.url()).pathname).toBe("/login");
+        expect(await sessionCookie()).toBeUndefined();
+        expect(await stored(here)).toBeNull();
+        expect(await stored(there)).toBeNull();
+        expect(await sessions.countDocuments()).toBe(0);
+        // The other device is signed out as well.
+        await otherPage.goto(`${base}/owner/products`);
+        await otherPage.waitForURL(`${base}/login?redirect=%2Fowner%2Fproducts`);
+      } finally {
+        await other.close();
+      }
+    });
+
     it("5 failed logins block further attempts, even with the right password", async () => {
       for (let i = 0; i < 5; i++) await signIn(EMAIL, `wrong-password-${i}`);
       expect(JSON.parse(await signIn())).toEqual({
@@ -1038,6 +1085,37 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         const headersFile = await at("/_headers");
         await headersFile.text();
         expect(headersFile.status).toBe(404);
+
+        // CSRF on the built server: capture a real server-function request from its own login
+        // page (no database is configured, so the login itself fails), then replay it.
+        const builtPage = await context.newPage();
+        const builtRequests: (typeof requests)[number][] = [];
+        builtPage.on("request", (r) => {
+          if (r.url().includes("/_serverFn") && r.method() === "POST")
+            builtRequests.push({
+              url: r.url(),
+              method: r.method(),
+              headers: r.headers(),
+              body: r.postData(),
+            });
+        });
+        try {
+          await builtPage.goto(`http://127.0.0.1:${builtPort}/login`, { waitUntil: "networkidle" });
+          await builtPage.waitForSelector('[data-testid="login-submit"]:not([disabled])');
+          await builtPage.getByTestId("login-email").fill(EMAIL);
+          await builtPage.getByTestId("login-password").fill("wrong-password-built");
+          await builtPage.getByTestId("login-submit").click();
+          await builtPage.getByTestId("login-error").waitFor();
+        } finally {
+          await builtPage.close();
+        }
+        const builtLogin = builtRequests[0];
+        if (!builtLogin) throw new Error("no server-function request captured on the built server");
+        expect((await replay(builtLogin, { origin: "cross" })).status).toBe(403);
+        expect((await replay(builtLogin, { origin: "none" })).status).toBe(403);
+        const sameOrigin = await replay(builtLogin, { origin: "same" });
+        expect(sameOrigin.status).toBe(200);
+        expect(sameOrigin.text).not.toMatch(LEAK);
       } finally {
         built.kill("SIGTERM");
       }

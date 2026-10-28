@@ -29,16 +29,22 @@ Workers-specific statements elsewhere in the docs are historical.
 | Login hardening (atomic attempt counting, per-address limit, bounded password hashing)        | DONE   | Commit `42518cc` (local branch, not pushed)                                  |
 | Baseline security headers (`src/server.ts`, `public/_headers`, HSTS off by default)           | DONE   | Commit `4711be0`; `public/_headers` was Cloudflare-only; replaced in Step 5b |
 
+| Step 7a — session hardening: revoke all sessions, "Sign out everywhere", old session deleted at login, 5-session cap, `createdIp`/`userAgent`/`lastSeenAt` | DONE | Committed 2026-10-28 |
 | Step 5b — build target Nitro `node-server`; static-file headers from a `nitro.config.ts` route rule (`public/_headers` removed) | DONE | Committed 2026-10-28 |
 | Step 4 — time-boxed Workers runtime test (local workerd, branch `spike/workers-runtime`, not merged) | DONE | Result: move to a Node server, [decision 0001](decisions/0001-runtime-node-not-workers.md) |
 
 ## Required before any real deployment
 
-| Item                                                                                                                                                                                                                                                                      | Depends on     | Approval gate     |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ----------------- |
-| **Trusted-proxy handling for the chosen host.** Behind Cloudflare proxy or Tunnel, all requests share one address and the per-address limit becomes a global lockout. (Also: HSTS is never sent when the proxy forwards plain `http`.) Design pending the hosting choice. | Hosting choice | New step approval |
+| Item                                                                                                                                                                                                                                                                      | Depends on     | Approval gate                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ----------------------------- |
+| **Trusted-proxy handling for the chosen host.** Behind Cloudflare proxy or Tunnel, all requests share one address and the per-address limit becomes a global lockout. (Also: HSTS is never sent when the proxy forwards plain `http`.) Design pending the hosting choice. | Hosting choice | New step approval             |
+| **Run `bun run db:setup-indexes` as part of every deploy** (session TTL cleanup, unique email, single owner, product indexes). Without the TTL index expired sessions (with their IP/User-Agent) are never deleted.                                                       | Hosting choice | Owner runs it (real database) |
 
 ## Pending (none approved)
+
+**Step 7b (PLANNED, not approved):** session idle timeout / PIN lock policy for shared shop
+devices (e.g. shorter employee lifetimes, idle expiry from `lastSeenAt`), to be decided together
+with the employee-account design.
 
 **Backend Step 3c is NOT approved.** Do not start it. Its scope has not been defined by the owner.
 

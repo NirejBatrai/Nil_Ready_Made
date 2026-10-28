@@ -26,7 +26,12 @@ export async function loginWithCookie(
     socketIp: getRequestIP(),
     cfConnectingIp: getRequestHeader("cf-connecting-ip"),
   });
-  const result = await database.withDatabase((conn) => createAuthService(conn).login(input, ip));
+  // The old session cookie (if any) is ended after the new login; the User-Agent is stored on the
+  // session (truncated) and never logged.
+  const context = { previousToken: getCookie(COOKIE), userAgent: getRequestHeader("user-agent") };
+  const result = await database.withDatabase((conn) =>
+    createAuthService(conn).login(input, ip, context),
+  );
   if (!result.ok) return result;
   setCookie(COOKIE, result.token, sessionCookieOptions(PRODUCTION, result.expiresAt));
   return { ok: true, user: { name: result.user.name, role: result.user.role } };
@@ -40,6 +45,17 @@ export async function logoutWithCookie(): Promise<void> {
     // Clear the cookie even if the database is unreachable.
     deleteCookie(COOKIE, sessionCookieOptions(PRODUCTION));
   }
+}
+
+/**
+ * Ends every session of the signed-in user (all devices, this one included), then clears the
+ * cookie. Throws AuthError("Not signed in.") without a valid session; if the database fails,
+ * nothing was revoked and the cookie is kept so the user can retry.
+ */
+export async function signOutEverywhereWithCookie(): Promise<void> {
+  const token = getCookie(COOKIE);
+  await database.withDatabase((conn) => createAuthService(conn).signOutEverywhere(token));
+  deleteCookie(COOKIE, sessionCookieOptions(PRODUCTION));
 }
 
 export async function currentUserFromCookie(): Promise<AuthUser | undefined> {

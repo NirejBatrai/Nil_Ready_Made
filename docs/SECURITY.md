@@ -78,7 +78,39 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
 - Random 32-byte token in the cookie; MongoDB stores only its **SHA-256 hash** (`sessions._id`).
 - Fixed lifetime **7 days** from login; expiry checked in code on every request (TTL index only
   cleans up). The user record is re-read on every request.
-- Logout deletes the session and clears the cookie (also cleared if the DB is unreachable).
+- Logout deletes the session and clears the cookie (also cleared if the DB is unreachable; the
+  database record then stays valid until it expires).
+
+### Session lifecycle (`src/server/auth/auth.server.ts`, VERIFIED 2026-10-28)
+
+1. **Login** creates a new session (new random token; the client never chooses an id) storing
+   `userId`, `expiresAt` (login + 7 days), `createdIp` (the login client address from
+   `client-address.server.ts`, or `null`), `userAgent` (truncated to 256 characters; not stored
+   if missing) and `lastSeenAt`.
+2. Then, **after** the new session exists: the session whose cookie was presented at login (any
+   user's) is deleted, and the user's sessions are trimmed to the **newest 5** (by expiry; the
+   new one is always kept). The cap is **soft** under simultaneous logins: each login trims only
+   what it can see, so the count can briefly exceed 5 and settles once they finish.
+3. **Every request** re-reads the session and user; expired sessions are refused and deleted.
+   `lastSeenAt` is written at most **once every 5 minutes** per session, not per request. There
+   is **no idle timeout** yet (Step 7b).
+4. **Logout** deletes this session. **"Sign out everywhere"** (`signOutEverywhere`, POST, on the
+   signed-in card of `/login`) requires a valid session, deletes **every** session of that user
+   (`revokeAllSessions`, `deleteMany` on the indexed `userId`), clears the cookie and returns to
+   `/login`. On a database error nothing is revoked and the cookie is kept, so the user can retry.
+5. **Expiry cleanup:** the TTL index on `expiresAt` deletes expired records (created by
+   `bun run db:setup-indexes` / `auth:create-owner`; run it on every deploy, see
+   [ROADMAP.md](ROADMAP.md)).
+
+Sessions created before 2026-10-28 have none of the new fields; they keep working and get
+`lastSeenAt` on first use (no migration; unit-tested).
+
+**Personal data (Thailand PDPA):** the login IP address and browser User-Agent are stored on the
+session only for account security (spotting unfamiliar sessions, revocation, a later idle
+timeout). They are never logged or shown to other users, are not used for anything else, and are
+deleted together with the session: on logout, "sign out everywhere", the 5-session cap, or by
+the TTL index when the session expires (at most 7 days after login).
+
 - Cookie: `HttpOnly`, `SameSite=Lax`, `Path=/`. Production: name `__Host-luxe_session`, `Secure`
   (requires HTTPS). Local dev (`http://127.0.0.1`): `luxe_session`, not `Secure`. Decided at
   build time (`import.meta.env.PROD`).
@@ -91,6 +123,7 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
   `safeErrors`: `.middleware([safeErrors, requireOwner])`. It throws "Not signed in." /
   "Not allowed.".
 - Currently protected: `getProductForOwner`, `listProductsForOwner`, `createProductForOwner`.
+  `signOutEverywhere` needs any valid session (not owner-only) and acts only on that user.
 - Product **cost** is owner-only: `select: false` in the schema; public mappers build results
   field by field; only `getProductForOwner` returns cost. The `/owner/products` pages never
   request or show cost; create responses never contain it (E2E-checked with a distinctive value).
