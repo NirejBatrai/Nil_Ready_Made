@@ -318,10 +318,10 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       const missing = await fetch(`${base}/does-not-exist`);
       await missing.text();
       expect(missing.status).toBe(404);
-      // Static files are served by Vite before the app (on Cloudflare: by the assets binding), so
-      // dynamic no-store never reaches them. No security header at all proves this response did
-      // not pass through src/server.ts (in dev nothing adds them to static files; on Cloudflare
-      // public/_headers would, which is not exercised here).
+      // Static files are served by Vite before the app, so dynamic no-store never reaches them. No
+      // security header at all proves this response did not pass through src/server.ts (in dev
+      // nothing adds them to static files; the production Node server adds the baseline through
+      // the nitro.config.ts route rule, checked in the production-build test below).
       const favicon = await fetch(`${base}/favicon.ico`);
       expect((await favicon.arrayBuffer()).byteLength).toBeGreaterThan(0);
       expect(favicon.status).toBe(200);
@@ -977,7 +977,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       for (const body of responses) expect(body).not.toMatch(LEAK);
     });
 
-    it("the production build of the isolated copy keeps server code out of the browser bundle", () => {
+    it("the production build of the isolated copy keeps server code out of the browser bundle", async () => {
       const r = spawnSync(process.execPath, ["node_modules/vite/bin/vite.js", "build"], {
         cwd: copy,
         env: { PATH: process.env["PATH"] ?? "", HOME: tmpdir(), NO_COLOR: "1" },
@@ -992,12 +992,55 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         expect(js).not.toMatch(
           /mongoose|scrypt|timingSafeEqual|MONGODB_URI|passwordHash|luxe_session/,
         );
-      // Static-file headers for Cloudflare reach the build output (applied by Cloudflare itself:
-      // not verifiable locally).
-      const staticHeaders = readFileSync(join(copy, ".output/public/_headers"), "utf8");
-      expect(staticHeaders).toMatch(/^\/\*$/m);
-      for (const [name, value] of Object.entries(SECURITY_HEADERS))
-        expect(staticHeaders.toLowerCase()).toContain(`  ${name}: ${value.toLowerCase()}`);
+      // The build is a Node server (preset node-server). Start it with node, without any database
+      // setting, and check the headers it sends itself: static files get the baseline from the
+      // nitro.config.ts route rule, pages get it from src/server.ts, and no Cloudflare _headers
+      // file is published.
+      const asset = readdirSync(join(copy, ".output/public/assets")).find((f) => f.endsWith(".js"));
+      if (!asset) throw new Error("no built asset");
+      const builtPort = await freePort();
+      const built = spawn(process.execPath, [".output/server/index.mjs"], {
+        cwd: copy,
+        env: {
+          PATH: process.env["PATH"] ?? "",
+          HOME: tmpdir(),
+          NODE_ENV: "production",
+          HOST: "127.0.0.1",
+          PORT: String(builtPort),
+        },
+      });
+      let builtOutput = "";
+      built.stdout?.on("data", (d: Buffer) => (builtOutput += d.toString()));
+      built.stderr?.on("data", (d: Buffer) => (builtOutput += d.toString()));
+      try {
+        const started = Date.now();
+        while (!builtOutput.includes(`127.0.0.1:${builtPort}`)) {
+          if (Date.now() - started > 30_000 || built.exitCode !== null)
+            throw new Error("built server did not start");
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        const at = (path: string) => fetch(`http://127.0.0.1:${builtPort}${path}`);
+        const page = await at("/login");
+        await page.text();
+        expect(page.status).toBe(200);
+        expectSecured(page.headers, "built /login");
+        for (const path of ["/favicon.ico", `/assets/${asset}`]) {
+          const res = await at(path);
+          await res.arrayBuffer();
+          expect(res.status, path).toBe(200);
+          for (const [name, value] of Object.entries(SECURITY_HEADERS))
+            expect(res.headers.get(name), `built ${path}: ${name}`).toBe(value);
+          expect(res.headers.get("cache-control"), path).not.toBe("no-store");
+        }
+        const hashed = await at(`/assets/${asset}`);
+        await hashed.arrayBuffer();
+        expect(hashed.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+        const headersFile = await at("/_headers");
+        await headersFile.text();
+        expect(headersFile.status).toBe(404);
+      } finally {
+        built.kill("SIGTERM");
+      }
     }, 300_000);
   },
 );

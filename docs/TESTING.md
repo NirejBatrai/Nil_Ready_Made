@@ -30,20 +30,20 @@ How `.env` is kept out of tests (VERIFIED 2026-10-24):
 
 ## Commands
 
-| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                                                    |
-| ------------------------ | --------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (10-28, with Step 3)                                                                                               |
-| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                                                            |
-| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (10-28, with Step 3)                                                                 |
-| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (10-28, with Step 3)                                                                          |
-| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 219 passed, 0 failed, 38 skipped (10-28, with Step 3)                                                                     |
-| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                                                   |
-| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 36 passed, 0 failed, 1 skipped (10-28, with Step 3); the former intermittent failure is fixed, see Known test limitations |
-| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                                                  |
-| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                                                     |
-| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                                                     |
-| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                                                         |
-| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                                                     |
+| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                                                     |
+| ------------------------ | --------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (10-28, with Step 5b)                                                                                               |
+| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                                                             |
+| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (10-28, with Step 5b)                                                                 |
+| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (10-28, with Step 5b)                                                                          |
+| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 219 passed, 0 failed, 38 skipped (10-28, with Step 5b)                                                                     |
+| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                                                    |
+| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 36 passed, 0 failed, 1 skipped (10-28, with Step 5b); the former intermittent failure is fixed, see Known test limitations |
+| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                                                   |
+| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                                                      |
+| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                                                      |
+| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                                                          |
+| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                                                      |
 
 Do not run the `.env`-loading commands unless the owner asks; prefer that the owner runs them.
 If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier …` are equivalent.
@@ -62,7 +62,7 @@ If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier
 | `setup-indexes.test.ts`                                                                                               | Runs `scripts/setup-indexes.ts` under Bun on isolated DBs: creates, idempotent, refuses on conflicts/unnormalized data without changing it, stops on index-definition conflicts                                                                                                                                                                                       |
 | `auth.test.ts`                                                                                                        | Passwords, login, attempt limits (simultaneous attempts, per-address/email rotation, IPv6 /64, database-down and hashing-busy un-counting, per-account limit incl. emails without an account and address rotation, no shared bucket without an address), hashing concurrency bound, sessions/expiry, owner authorization, single owner, cookie options, config checks |
 | `client-address.test.ts`                                                                                              | Login client address: socket address off Workers (spoofed `CF-Connecting-IP` ignored), `CF-Connecting-IP` only on Workers, non-IP values give no address, IP validation, Workers detection by user agent (simulated; not run on workerd)                                                                                                                              |
-| `security-headers.test.ts`                                                                                            | Security headers: values, no-store, redirect/Set-Cookie/stream copying, HSTS gating and setting parsing, every return path of `src/server.ts` (mocked entry), `public/_headers` in sync                                                                                                                                                                               |
+| `security-headers.test.ts`                                                                                            | Security headers: values, no-store, redirect/Set-Cookie/stream copying, HSTS gating and setting parsing, every return path of `src/server.ts` (mocked entry), `nitro.config.ts` static-file route rule in sync                                                                                                                                                        |
 | `server-errors.test.ts`                                                                                               | `toSafeError` and the real serializer payload (no stack)                                                                                                                                                                                                                                                                                                              |
 | `db.integration.test.ts`                                                                                              | Opt-in live ping (skipped unless `RUN_DB_INTEGRATION=1`)                                                                                                                                                                                                                                                                                                              |
 | `auth.e2e.test.ts`                                                                                                    | Opt-in E2E (skipped unless `RUN_AUTH_E2E=1`)                                                                                                                                                                                                                                                                                                                          |
@@ -82,7 +82,9 @@ If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier
    server-controlled fields rejected), demo unchanged, leak scan of every response, security
    headers on pages, 404s, redirects, signed-in owner pages, server functions, CSRF 403s and
    database-down pages (exact values; no HSTS over http; `favicon.ico` bypasses the app), and a production build
-   of the copy with a browser-bundle scan and a `.output/public/_headers` check.
+   of the copy (Nitro `node-server`) with a browser-bundle scan; the built server is started with
+   `node .output/server/index.mjs` (no database setting) and checked for security headers on
+   `/login`, `favicon.ico` and a hashed `/assets/*` file, and a 404 for `/_headers`.
 5. Cleans up the copy, dev server and database (verified: nothing left running).
 
 ## Proving protections (required for security changes)
@@ -99,7 +101,10 @@ failed when removed, passed when restored). Also on 2026-10-24, the ten login-ha
 protections listed in [CHANGELOG.md](CHANGELOG.md) (login-hardening commit `42518cc`), and on 2026-10-25 the ten
 security-header protections listed there (security headers, commit `4711be0`). On 2026-10-27,
 the seven client-address / per-account protections listed there (unit), plus trusting
-`CF-Connecting-IP` off Workers (E2E: the spoofed replay signed in).
+`CF-Connecting-IP` off Workers (E2E: the spoofed replay signed in). On 2026-10-28, the
+static-file route rule in `nitro.config.ts` (removed: the unit test failed with
+`expected [] to deeply equal [ '/**' ]` and the E2E production-build test with
+`built /favicon.ico: x-frame-options: expected null to be 'DENY'`; restored byte-identical).
 
 ## Regenerating `src/routeTree.gen.ts` without loading `.env`
 

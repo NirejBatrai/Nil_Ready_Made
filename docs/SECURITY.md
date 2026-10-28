@@ -114,12 +114,14 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
 - **Verified by E2E** (exact values): the five baseline headers and `Cache-Control: no-store` on
   pages, 404s, signed-out redirects, signed-in owner pages, owner server functions, a CSRF 403
   and the database-down owner page; **no** HSTS over `http`; static `favicon.ico` bypasses
-  `src/server.ts` (none of the headers); the production build's `.output/public/_headers`
-  contains the baseline.
+  `src/server.ts` (none of the headers). The **built Node server** (E2E production-build test,
+  started with `node`): baseline + `no-store` on `/login`; baseline on `favicon.ico` and a hashed
+  `/assets/*` file (which keeps `public, max-age=31536000, immutable`); `/_headers` is 404.
 - **Unit tests only** (not E2E): **HSTS** (production + `https:` + setting; parsing; removal),
   keeping `Cache-Control` on hashed `/assets/*` responses, `no-store` for other path spellings,
   copying redirects / `Set-Cookie` / streamed bodies, both error-page paths in `src/server.ts`
-  (mocked entry), an unreadable environment, and `public/_headers` holding exactly the baseline.
+  (mocked entry), an unreadable environment, and the `nitro.config.ts` route rule holding exactly
+  the baseline.
 - _Historical (Workers target):_ Cloudflare applying `public/_headers`, reading
   `SECURITY_HSTS_MAX_AGE` on Workers and the request URL scheme on Workers were never verified on
   a deployment; Step 4 saw all three work under local workerd.
@@ -140,8 +142,10 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
 - `no-store` applies by rule, not by a path list, so owner pages and server-function data cannot
   be cached under another spelling of the path (case or percent-encoding). Hashed `/assets/*`
   responses that already carry their own `Cache-Control` keep it.
-- Static files get the same baseline (without `no-store` or HSTS) from `public/_headers`; a
-  unit test keeps it equal to the server constants. Cloudflare applying it is NOT VERIFIED.
+- Static files get the same baseline (without `no-store` or HSTS) from the route rule in
+  `nitro.config.ts`, which imports the server constants (one source of truth; a unit test checks
+  it). `public/_headers` (Cloudflare-only) was removed in Step 5b; the Node server would have
+  served it as a public file.
 - **HSTS** (unit-tested only; E2E runs over `http`) is sent only when all three hold: a production build (`import.meta.env.PROD`), the
   request URL is `https:`, and the server setting `SECURITY_HSTS_MAX_AGE` is a whole number of
   seconds from 1 to 63072000. Anything else, including an unreadable environment, means off;
@@ -157,7 +161,7 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
   [ROADMAP.md](ROADMAP.md)) or HSTS set at the proxy.
 - A full Content-Security-Policy (scripts/styles) is **not** set: the hydration scripts, the
   error page's inline style and `onclick`, and Google Fonts would need nonces or allowlists.
-- A future camera barcode scanner needs `camera=(self)` in both the constant and `public/_headers`.
+- A future camera barcode scanner needs `camera=(self)` in the constant (static files follow it).
 
 ## Error handling
 
@@ -209,6 +213,9 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
 - `vite.config.ts` binds the dev server to `127.0.0.1` (overriding the Lovable default `::`), so
   server functions are not reachable from the local network. E2E verifies `::1` and the LAN
   address are refused.
+- The **production** Node server (`node .output/server/index.mjs`) listens on **all interfaces**
+  unless `HOST` is set (VERIFIED 2026-10-28). Set `HOST` (e.g. `127.0.0.1` behind a reverse
+  proxy) or firewall the port.
 - `/dev/db-health` and `/dev/auth` are diagnostics: unlinked and `noindex`. In production builds
   `/dev/auth` renders only "Not available."; `/dev/db-health` still renders, but its server
   function returns `disabled` unless `DB_HEALTHCHECK_ENABLED=true` is set on the server.

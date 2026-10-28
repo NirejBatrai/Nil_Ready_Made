@@ -7,6 +7,10 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
+  // Production runs as a Node.js server, not on Cloudflare Workers (the Lovable default).
+  // See docs/decisions/0001-runtime-node-not-workers.md. Start the build with
+  // `node .output/server/index.mjs`.
+  nitro: { preset: "node-server" },
   vite: {
     // Local development only: listen on this computer, not the local network. The Lovable
     // default is "::" (all interfaces), which would expose server functions to other devices.

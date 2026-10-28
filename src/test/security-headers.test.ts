@@ -1,11 +1,10 @@
 // @vitest-environment node
 /**
  * Baseline security headers: the pure function, HSTS gating, every return path of src/server.ts,
- * and public/_headers (static files) staying in sync with the server constants.
+ * and the nitro.config.ts static-file route rule staying in sync with the server constants.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import nitroConfig from "../../nitro.config";
 import {
   applySecurityHeaders,
   BASELINE_SECURITY_HEADERS,
@@ -226,20 +225,13 @@ describe("src/server.ts: every return path is secured", () => {
   });
 });
 
-describe("public/_headers (static files)", () => {
-  const file = readFileSync(join(process.cwd(), "public/_headers"), "utf8");
-  const lines = file.split("\n").filter((l) => l.trim() && !l.trim().startsWith("#"));
-
-  it("has one /* rule with exactly the baseline headers, and no caching or HSTS", () => {
-    expect(lines[0]).toBe("/*");
-    const rules = lines.slice(1).map((l) => {
-      expect(l).toMatch(/^ {2}\S/);
-      const i = l.indexOf(":");
-      return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
-    });
-    expect(Object.fromEntries(rules)).toEqual(BASELINE_SECURITY_HEADERS);
-    expect(Object.fromEntries(rules)).toEqual(EXPECTED);
-    expect(rules).toHaveLength(Object.keys(BASELINE_SECURITY_HEADERS).length);
-    expect(lines.join("\n")).not.toMatch(/cache-control|strict-transport-security/i);
+describe("nitro.config.ts route rule (static files on the Node server)", () => {
+  it("adds exactly the baseline headers to every path, and no caching or HSTS", () => {
+    const rules = nitroConfig.routeRules ?? {};
+    expect(Object.keys(rules)).toEqual(["/**"]);
+    const headers = rules["/**"]?.headers ?? {};
+    expect(headers).toEqual(BASELINE_SECURITY_HEADERS);
+    expect(headers).toEqual(EXPECTED);
+    expect(Object.keys(headers).join(" ")).not.toMatch(/cache-control|strict-transport-security/i);
   });
 });

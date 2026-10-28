@@ -12,23 +12,24 @@ Workers-specific statements elsewhere in the docs are historical.
 
 ## Completed
 
-| Phase                                                                                         | Status | Notes                                                                |
-| --------------------------------------------------------------------------------------------- | ------ | -------------------------------------------------------------------- |
-| Demo app (all screens, simulated roles, fictional data)                                       | DONE   | Browser-only; not a security boundary                                |
-| Phase One demo fixes (drawer/audit actors, deterministic reset, chart metrics, mobile layout) | DONE   | Committed on `main`                                                  |
-| Per-product minimum selling price (demo checkout + rules in `calc.ts`)                        | DONE   | Committed on `main`                                                  |
-| Repository prepared for private GitHub (no Lovable sync)                                      | DONE   | `main` = `origin/main` (local tracking ref)                          |
-| Backend Step 1 — MongoDB connection foundation                                                | DONE   | Commit `722d86f` (local branch, not pushed)                          |
-| Product model + server-only product service                                                   | DONE   | Commit `ced5535` (local branch, not pushed)                          |
-| Backend Step 2a — owner auth core, local owner script, dev bound to `127.0.0.1`               | DONE   | Commit `ced5535` (local branch, not pushed)                          |
-| Backend Step 2b — `safeErrors`, `requireOwner`, isolated E2E suite                            | DONE   | Commit `ced5535` (local branch, not pushed)                          |
-| Backend Step 2c — `/login` UI                                                                 | DONE   | Commit `ced5535` (local branch, not pushed)                          |
-| Backend Step 3a — read-only `/owner/products`                                                 | DONE   | Commit `ced5535` (local branch, not pushed)                          |
-| Backend Step 3b — owner-only product creation + `db:setup-indexes`                            | DONE   | Commit `ced5535` (local branch, not pushed)                          |
-| Handbook (`AGENTS.md`, `docs/`) + audit hardening (`envDir: false`, `safeErrors` on health)   | DONE   | Commit `4da3c13` (local branch, not pushed)                          |
-| Login hardening (atomic attempt counting, per-address limit, bounded password hashing)        | DONE   | Commit `42518cc` (local branch, not pushed)                          |
-| Baseline security headers (`src/server.ts`, `public/_headers`, HSTS off by default)           | DONE   | Commit `4711be0`; `public/_headers` was Cloudflare-only (historical) |
+| Phase                                                                                         | Status | Notes                                                                        |
+| --------------------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------- |
+| Demo app (all screens, simulated roles, fictional data)                                       | DONE   | Browser-only; not a security boundary                                        |
+| Phase One demo fixes (drawer/audit actors, deterministic reset, chart metrics, mobile layout) | DONE   | Committed on `main`                                                          |
+| Per-product minimum selling price (demo checkout + rules in `calc.ts`)                        | DONE   | Committed on `main`                                                          |
+| Repository prepared for private GitHub (no Lovable sync)                                      | DONE   | `main` = `origin/main` (local tracking ref)                                  |
+| Backend Step 1 — MongoDB connection foundation                                                | DONE   | Commit `722d86f` (local branch, not pushed)                                  |
+| Product model + server-only product service                                                   | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
+| Backend Step 2a — owner auth core, local owner script, dev bound to `127.0.0.1`               | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
+| Backend Step 2b — `safeErrors`, `requireOwner`, isolated E2E suite                            | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
+| Backend Step 2c — `/login` UI                                                                 | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
+| Backend Step 3a — read-only `/owner/products`                                                 | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
+| Backend Step 3b — owner-only product creation + `db:setup-indexes`                            | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
+| Handbook (`AGENTS.md`, `docs/`) + audit hardening (`envDir: false`, `safeErrors` on health)   | DONE   | Commit `4da3c13` (local branch, not pushed)                                  |
+| Login hardening (atomic attempt counting, per-address limit, bounded password hashing)        | DONE   | Commit `42518cc` (local branch, not pushed)                                  |
+| Baseline security headers (`src/server.ts`, `public/_headers`, HSTS off by default)           | DONE   | Commit `4711be0`; `public/_headers` was Cloudflare-only; replaced in Step 5b |
 
+| Step 5b — build target Nitro `node-server`; static-file headers from a `nitro.config.ts` route rule (`public/_headers` removed) | DONE | Committed 2026-10-28 |
 | Step 4 — time-boxed Workers runtime test (local workerd, branch `spike/workers-runtime`, not merged) | DONE | Result: move to a Node server, [decision 0001](decisions/0001-runtime-node-not-workers.md) |
 
 ## Required before any real deployment
@@ -36,12 +37,6 @@ Workers-specific statements elsewhere in the docs are historical.
 | Item                                                                                                                                                                                                                                                                      | Depends on     | Approval gate     |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ----------------- |
 | **Trusted-proxy handling for the chosen host.** Behind Cloudflare proxy or Tunnel, all requests share one address and the per-address limit becomes a global lockout. (Also: HSTS is never sent when the proxy forwards plain `http`.) Design pending the hosting choice. | Hosting choice | New step approval |
-
-## Approved, in progress
-
-| Step                                                                      | Status              |
-| ------------------------------------------------------------------------- | ------------------- |
-| Step 5b — build target Nitro `node-server` (replaces `cloudflare-module`) | APPROVED 2026-10-28 |
 
 ## Pending (none approved)
 

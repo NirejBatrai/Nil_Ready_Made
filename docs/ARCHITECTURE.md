@@ -17,10 +17,14 @@ _VERIFIED against the source on 2026-10-23 (updated 2026-10-24) unless marked ot
 [decisions/0001-runtime-node-not-workers.md](decisions/0001-runtime-node-not-workers.md). The
 hosting provider is not chosen; see [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
-Build target until Step 5b (historical): the Lovable default Nitro preset **`cloudflare-module`**
-(Workers, `nodejs_compat`), with no override in `vite.config.ts`. `nitro.config.ts` aliases
-`punycode/` so the MongoDB driver bundled for that target. Step 5b switches the build to Nitro's
-`node-server` preset.
+Build target (Step 5b, VERIFIED 2026-10-28): `vite.config.ts` sets `nitro: { preset:
+"node-server" }`, overriding the Lovable default `cloudflare-module`. The build writes
+`.output/server/index.mjs` (plus traced dependencies in `.output/server/node_modules`) and
+`.output/public`. Start it with `node .output/server/index.mjs`; it reads `PORT` (default 3000)
+and `HOST`. **Without `HOST` it listens on all interfaces** (VERIFIED), so production must set
+`HOST` (e.g. `127.0.0.1` behind a reverse proxy) or firewall the port. The `punycode/` alias in
+`nitro.config.ts` was needed only for the former Workers target (historical; harmless; candidate
+for removal), as is the Workers detection in `db.server.ts` and `client-address.server.ts`.
 
 ## Directory map
 
@@ -54,7 +58,6 @@ src/
     auth/                 password (scrypt), auth core, cookie options, session-context (HTTP bridge)
   types/domain.ts         Shared domain types
   test/                   Vitest tests (see TESTING.md)
-public/_headers           Same baseline headers for static files (Cloudflare _headers format)
 scripts/                  Local-only CLI scripts run with Bun by the owner
   create-owner.ts         bun run auth:create-owner
   setup-indexes.ts        bun run db:setup-indexes
@@ -89,6 +92,12 @@ functions, and choosing a demo role creates no session (tested in E2E).
   rules: [SECURITY.md](SECURITY.md#security-headers).
 - Static files do **not** pass through it in dev: Vite serves `public/` and modules itself
   (VERIFIED in E2E: `favicon.ico` carries none of the security headers).
+- On the production Node server, Nitro serves `.output/public` (favicon, `robots.txt`, hashed
+  `/assets/*`) itself, before `src/server.ts`. The route rule
+  `routeRules: { "/**": { headers: BASELINE_SECURITY_HEADERS } }` in `nitro.config.ts` adds the
+  baseline to every response, static files included (dynamic responses still carry each header
+  once). Hashed `/assets/*` keep Nitro's `Cache-Control: public, max-age=31536000, immutable`.
+  VERIFIED 2026-10-28 by the E2E production-build test (starts the built server with `node`).
 - _Historical (Workers target, decision 0001):_ on Cloudflare (NOT VERIFIED on a deployment; checked only in the installed Nitro source): the
   `cloudflare-module` handler sends public asset URLs to the `ASSETS` binding before the app,
   and Nitro writes a `wrangler.json` with that binding by default (`deployConfig` defaults to

@@ -4,6 +4,30 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-10-28 — Step 5b: build target Node server
+
+- `vite.config.ts`: `nitro: { preset: "node-server" }` (installed Nitro `3.0.260603-beta`),
+  overriding the Lovable default `cloudflare-module`. Start with `node .output/server/index.mjs`;
+  `PORT`/`HOST` are read from the environment; without `HOST` it listens on all interfaces.
+- Static files: the Node server serves `.output/public` before `src/server.ts`, so they had no
+  security headers, and `public/_headers` (Cloudflare-only) was ignored **and published** as
+  `/_headers`. Replaced by a `routeRules` entry in `nitro.config.ts` that adds
+  `BASELINE_SECURITY_HEADERS` (imported from the server module) to every response;
+  `public/_headers` removed. Hashed `/assets/*` keep `public, max-age=31536000, immutable`; each
+  header appears once on dynamic responses.
+- Tests: the unit test now checks the route rule instead of `public/_headers`; the E2E
+  production-build test starts the built server with `node` and checks headers on `/login`,
+  `favicon.ico` and a hashed asset, and that `/_headers` is 404. Removing the route rule made
+  both fail; restored byte-identical.
+- `.env.example`: production settings go in the Node host's environment, not Worker secrets.
+- Smoke test (isolated copy, throwaway local `mongod` on 127.0.0.1, Node v24.14.0): signed-out
+  redirect; login 352 ms (`__Host-luxe_session`, HttpOnly, Secure, SameSite=Lax); empty list;
+  create → row in 167 ms; row after reload; headers as above.
+- Checks: typecheck, lint (0 errors, 11 known warnings), format check, `bun run test` (219
+  passed, 38 skipped), `bun run test:e2e` (36 passed, 1 skipped).
+- Kept unchanged (candidates for removal): Workers detection by `navigator.userAgent`, the
+  `punycode/` alias.
+
 ## 2026-10-28 — Steps 4 and 5a: Workers runtime test and decision to run on a Node server
 
 - Step 4: time-boxed local test of the app under Cloudflare's runtime (`wrangler dev --local`,

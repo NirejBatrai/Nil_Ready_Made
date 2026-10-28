@@ -20,14 +20,14 @@ Luxe Retail OS is a mobile-first POS / back-office app for a small shop in Thail
 
 ## Git state (VERIFIED 2026-10-28, local repository only)
 
-| Item              | Value                                                                                                                                                                                                                                                                                                                                                                              |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Current branch    | `feature/mongodb-foundation`, tracking `origin/feature/mongodb-foundation` (pushed by the owner on 2026-10-28; the local tracking ref matched HEAD then). Later commits are local until pushed; check `git status`                                                                                                                                                                 |
-| Committed work    | All of the following is committed on this branch (not merged into `main`): connection foundation, product model/service, Backend Steps 2a–3b, agent handbook and test-isolation hardening, login hardening, security headers, Step 1 (docs/tooling hygiene), Step 2 (login client address + per-account limit), Step 3 (stale product list fix), Step 5a (runtime decision record) |
-| Uncommitted work  | None expected; check `git status`                                                                                                                                                                                                                                                                                                                                                  |
-| Commit hashes     | See `git log --oneline main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                           |
-| `main`            | Matches `origin/main` according to the local remote-tracking ref (last updated 2026-10-23, not re-fetched)                                                                                                                                                                                                                                                                         |
-| Local backup refs | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                                                                                             |
+| Item              | Value                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current branch    | `feature/mongodb-foundation`, tracking `origin/feature/mongodb-foundation` (pushed by the owner on 2026-10-28; the local tracking ref matched HEAD then). Later commits are local until pushed; check `git status`                                                                                                                                                                                                     |
+| Committed work    | All of the following is committed on this branch (not merged into `main`): connection foundation, product model/service, Backend Steps 2a–3b, agent handbook and test-isolation hardening, login hardening, security headers, Step 1 (docs/tooling hygiene), Step 2 (login client address + per-account limit), Step 3 (stale product list fix), Step 5a (runtime decision record), Step 5b (build target Node server) |
+| Uncommitted work  | None expected; check `git status`                                                                                                                                                                                                                                                                                                                                                                                      |
+| Commit hashes     | See `git log --oneline main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                                                               |
+| `main`            | Matches `origin/main` according to the local remote-tracking ref (last updated 2026-10-23, not re-fetched)                                                                                                                                                                                                                                                                                                             |
+| Local backup refs | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                                                                                                                                 |
 
 Pushing or merging the branch requires the owner's approval. A throwaway branch
 `spike/workers-runtime` (Step 4, worktree `../Nil_Ready_made-spike-workers`) exists locally; it
@@ -47,17 +47,18 @@ is not to be merged.
 
 Details: [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md).
 
-## Latest check results (VERIFIED 2026-10-28, with Step 3, unless dated)
+## Latest check results (VERIFIED 2026-10-28, with Step 5b, unless dated)
 
-| Command                                                   | Result                                                                                                                          |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | exit 0 (2026-10-23)                                                                                                             |
-| `bun run typecheck` (`tsc --noEmit -p .`)                 | exit 0                                                                                                                          |
-| `bun run lint`                                            | 0 errors, 11 warnings (pre-existing `react-refresh/only-export-components`)                                                     |
-| `bun run format:check` (`prettier --check .`)             | exit 0, all files formatted                                                                                                     |
-| `bun run test`                                            | 14 files passed, 2 skipped; **219 tests passed, 0 failed, 38 skipped** (opt-in suites)                                          |
-| `bun run test:e2e`                                        | **36 passed, 0 failed, 1 skipped** (Chrome-not-found placeholder)                                                               |
-| Product-create E2E chain, 15× in a loop                   | **15/15 passed** with the fix; with `staleReloadMode` removed the test failed (`shown: true`). See [CHANGELOG.md](CHANGELOG.md) |
+| Command                                                   | Result                                                                                                                                                                                                                   |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | exit 0 (2026-10-23)                                                                                                                                                                                                      |
+| `bun run typecheck` (`tsc --noEmit -p .`)                 | exit 0                                                                                                                                                                                                                   |
+| `bun run lint`                                            | 0 errors, 11 warnings (pre-existing `react-refresh/only-export-components`)                                                                                                                                              |
+| `bun run format:check` (`prettier --check .`)             | exit 0, all files formatted                                                                                                                                                                                              |
+| `bun run test`                                            | 14 files passed, 2 skipped; **219 tests passed, 0 failed, 38 skipped** (opt-in suites)                                                                                                                                   |
+| `bun run test:e2e`                                        | **36 passed, 0 failed, 1 skipped** (Chrome-not-found placeholder)                                                                                                                                                        |
+| Production smoke test (Step 5b)                           | Built with `node-server` in an isolated copy, started with `node .output/server/index.mjs` against a throwaway local `mongod`: login, empty list, create, row after reload; headers on pages, `favicon.ico`, `/assets/*` |
+| Product-create E2E chain, 15× in a loop (Step 3)          | **15/15 passed** with the fix; with `staleReloadMode` removed the test failed (`shown: true`). See [CHANGELOG.md](CHANGELOG.md)                                                                                          |
 
 **Former intermittent E2E failure: root-caused and fixed (Step 3).** After creating a product,
 `/owner/products` briefly (11–38 ms) rendered the router's cached, stale list every time; the
@@ -77,13 +78,13 @@ builds production output in an isolated copy instead. See [TESTING.md](TESTING.m
 - **Runtime decision (2026-10-28):** production runs as a **Node.js server** (Node LTS), not
   Cloudflare Workers; see [decisions/0001](decisions/0001-runtime-node-not-workers.md). The
   hosting provider is not chosen (paused by the owner). Step 5b switches the build from the
-  Lovable default (Nitro `cloudflare-module`) to Nitro `node-server`.
+  Lovable default (Nitro `cloudflare-module`) to Nitro `node-server` (done 2026-10-28).
 
 ## Next approved action
 
-**Step 5b** (build target `node-server`), approved 2026-10-28. Step 4 (Workers runtime test)
-is done: its result is decision 0001; the throwaway branch `spike/workers-runtime` is not merged
-and waits for the owner to remove it. Merging the branch needs the owner's approval. Backend Step 3c has **not** been approved. Wait
+None. Step 5b (build target `node-server`) is committed. Step 4 (Workers runtime test) is done:
+its result is decision 0001; the throwaway branch `spike/workers-runtime` is not merged and
+waits for the owner to remove it. Merging the branch needs the owner's approval. Backend Step 3c has **not** been approved. Wait
 for the owner's explicit approval and scope before implementing anything new. Candidate next
 steps are listed (unapproved) in [ROADMAP.md](ROADMAP.md).
 
@@ -107,3 +108,8 @@ steps are listed (unapproved) in [ROADMAP.md](ROADMAP.md).
   `SECURITY_HSTS_MAX_AGE` after verifying HTTPS.
 - Product SKUs and variant SKUs are unique within their own index, not against each other.
 - Hosting provider, Atlas IP allowlisting for it, and backups are unresolved.
+- The production server listens on all interfaces unless `HOST` is set (see
+  [SECURITY.md](SECURITY.md#development-access)).
+- Workers-only code kept for now (candidates for removal): the `navigator.userAgent` Workers
+  detection in `db.server.ts` and `client-address.server.ts`, and the `punycode/` alias in
+  `nitro.config.ts`.

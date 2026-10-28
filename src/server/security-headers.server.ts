@@ -1,8 +1,8 @@
 /**
  * SERVER-ONLY baseline security headers for every dynamic response (pages, redirects, errors,
  * server functions). Applied once in src/server.ts. Static files never pass through it: Vite
- * serves them in dev, and on Cloudflare the assets binding serves them before the app runs, so
- * public/_headers carries the same baseline for them (kept in sync by security-headers.test.ts).
+ * serves them in dev, and the production Node server serves them before the app runs, so a
+ * Nitro route rule in nitro.config.ts adds this same baseline to them (built-server E2E check).
  *
  * - Content-Security-Policy is `frame-ancestors 'none'` ONLY (anti-framing). A full CSP needs
  *   nonces for the hydration scripts and is a separate step.
@@ -12,7 +12,7 @@
  *   sets SECURITY_HSTS_MAX_AGE (whole seconds, 1 to 63072000) on the server.
  */
 
-/** Sent on dynamic responses and, through public/_headers, on static files. */
+/** Sent on dynamic responses and, through the nitro.config.ts route rule, on static files. */
 export const BASELINE_SECURITY_HEADERS = {
   "X-Frame-Options": "DENY",
   "Content-Security-Policy": "frame-ancestors 'none'",
