@@ -120,10 +120,11 @@ there with a minimal environment, then copy back only `src/routeTree.gen.ts`.
   leave slots busy.
 - Browser `SameSite` enforcement is shown via cookie attributes and CSRF replays, not a real
   cross-site page.
-- The Cloudflare Workers runtime and the real Atlas database are not exercised by tests. The
-  Workers branch of the client address is unit-tested by simulating `navigator.userAgent`
-  only; real `CF-Connecting-IP` handling is NOT VERIFIED. HSTS is
-  only unit-tested (E2E runs over http in dev mode); Cloudflare's handling of `_headers` is not
-  tested.
+- Tests run under Node.js, the production runtime (decision
+  [0001](decisions/0001-runtime-node-not-workers.md)). The real Atlas database is not exercised.
+  HSTS is only unit-tested (E2E runs over http).
+- _Historical (Workers target):_ the Workers branch of the client address is unit-tested by
+  simulating `navigator.userAgent` only. The Cloudflare Workers runtime was checked once by
+  hand in Step 4 (local workerd, 2026-10-28; see the decision record), not by the test suite.
 - `server-errors.test.ts` imports `seroval`, a transitive dependency of TanStack Start.
 - Normal `vite dev`/`vite build` in the real project are not run by agents (they load `.env`).

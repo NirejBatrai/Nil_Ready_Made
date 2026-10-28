@@ -20,16 +20,18 @@ Luxe Retail OS is a mobile-first POS / back-office app for a small shop in Thail
 
 ## Git state (VERIFIED 2026-10-28, local repository only)
 
-| Item              | Value                                                                                                                                                                                                                                                                                                                                       |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Current branch    | `feature/mongodb-foundation`. No upstream configured; **not pushed** (no push made or recorded locally; GitHub not checked)                                                                                                                                                                                                                 |
-| Committed work    | All of the following is committed on this branch only (not on `main`): connection foundation, product model/service, Backend Steps 2a–3b, agent handbook and test-isolation hardening, login hardening, security headers, Step 1 (docs/tooling hygiene), Step 2 (login client address + per-account limit), Step 3 (stale product list fix) |
-| Uncommitted work  | None expected; check `git status`                                                                                                                                                                                                                                                                                                           |
-| Commit hashes     | See `git log --oneline main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                    |
-| `main`            | Matches `origin/main` according to the local remote-tracking ref (last updated 2026-10-23, not re-fetched)                                                                                                                                                                                                                                  |
-| Local backup refs | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                                                      |
+| Item              | Value                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current branch    | `feature/mongodb-foundation`, tracking `origin/feature/mongodb-foundation` (pushed by the owner on 2026-10-28; the local tracking ref matched HEAD then). Later commits are local until pushed; check `git status`                                                                                                                                                                 |
+| Committed work    | All of the following is committed on this branch (not merged into `main`): connection foundation, product model/service, Backend Steps 2a–3b, agent handbook and test-isolation hardening, login hardening, security headers, Step 1 (docs/tooling hygiene), Step 2 (login client address + per-account limit), Step 3 (stale product list fix), Step 5a (runtime decision record) |
+| Uncommitted work  | None expected; check `git status`                                                                                                                                                                                                                                                                                                                                                  |
+| Commit hashes     | See `git log --oneline main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                           |
+| `main`            | Matches `origin/main` according to the local remote-tracking ref (last updated 2026-10-23, not re-fetched)                                                                                                                                                                                                                                                                         |
+| Local backup refs | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                                                                                             |
 
-Pushing or merging the branch requires the owner's approval.
+Pushing or merging the branch requires the owner's approval. A throwaway branch
+`spike/workers-runtime` (Step 4, worktree `../Nil_Ready_made-spike-workers`) exists locally; it
+is not to be merged.
 
 ## Completed backend steps (VERIFIED in source and tests)
 
@@ -72,35 +74,36 @@ builds production output in an isolated copy instead. See [TESTING.md](TESTING.m
 - **No real owner account** has been created by an agent (`bun run auth:create-owner` not run).
 - **`bun run db:setup-indexes` has not been run** on the real database, so real product creation
   will refuse with "Product setup is incomplete" until the owner runs it. This is intended.
-- Hosting/deployment is **paused** by the owner. The build target is still the Lovable default
-  (Nitro `cloudflare-module`); a Node.js host was recommended but not adopted.
+- **Runtime decision (2026-10-28):** production runs as a **Node.js server** (Node LTS), not
+  Cloudflare Workers; see [decisions/0001](decisions/0001-runtime-node-not-workers.md). The
+  hosting provider is not chosen (paused by the owner). Step 5b switches the build from the
+  Lovable default (Nitro `cloudflare-module`) to Nitro `node-server`.
 
 ## Next approved action
 
-None. Step 3 is committed. Step 4 (time-boxed Cloudflare Workers runtime test) is **not**
-started and needs the owner's approval (and approval for the `wrangler` dependency). Pushing or
-merging the branch needs the owner's approval. Backend Step 3c has **not** been approved. Wait
+**Step 5b** (build target `node-server`), approved 2026-10-28. Step 4 (Workers runtime test)
+is done: its result is decision 0001; the throwaway branch `spike/workers-runtime` is not merged
+and waits for the owner to remove it. Merging the branch needs the owner's approval. Backend Step 3c has **not** been approved. Wait
 for the owner's explicit approval and scope before implementing anything new. Candidate next
 steps are listed (unapproved) in [ROADMAP.md](ROADMAP.md).
 
 ## Outstanding limitations
 
-- All branch work is local only (not pushed or merged into `main`).
-- Login client address (Step 2): `CF-Connecting-IP` on Cloudflare Workers only,
-  else the socket address; no shared fallback bucket; per-account limit 50 / 15 min. The
-  Workers path is NOT VERIFIED. Behind a proxy on a Node.js host all visitors would share the
-  proxy's address limit (trusted proxies not supported).
+- The branch is not merged into `main`.
+- Login client address (Step 2): the socket address on the Node.js server; no shared fallback
+  bucket; per-account limit 50 / 15 min. **Required before any real deployment:** trusted-proxy
+  handling. Behind a reverse proxy, Cloudflare proxy or Tunnel all visitors share the proxy's
+  address and the per-address limit becomes a global lockout (see [ROADMAP.md](ROADMAP.md)).
+  The `CF-Connecting-IP` branch for Workers is historical (candidate for removal).
 - `/owner/products/new` navigates to the list after a create without calling
   `router.invalidate()`; the list is fresh only because its loader uses blocking reload. See the
   invalidation rule in [ARCHITECTURE.md](ARCHITECTURE.md#router-data-after-mutations).
-- Mongoose and scrypt have never run under workerd / `wrangler dev`; the per-login scrypt CPU
-  cost has not been measured.
 - Demo screens still use simulated data and roles; the real product pages are separate.
 - No audit log, inventory-movement history, employee accounts or password reset.
 - Login attempt limits and the hashing bound are in-memory (reset on restart, per process); a
   flood that fills the hashing bound makes logins answer "Too many attempts" until it stops.
 - The production cookie (`__Host-luxe_session`, `Secure`) requires HTTPS.
 - Security headers: no full Content-Security-Policy yet; HSTS off until the owner sets
-  `SECURITY_HSTS_MAX_AGE` after verifying HTTPS; Cloudflare's use of `public/_headers` NOT VERIFIED.
+  `SECURITY_HSTS_MAX_AGE` after verifying HTTPS.
 - Product SKUs and variant SKUs are unique within their own index, not against each other.
-- Cloudflare Workers runtime, Atlas IP allowlisting for hosting, and backups are unresolved.
+- Hosting provider, Atlas IP allowlisting for it, and backups are unresolved.

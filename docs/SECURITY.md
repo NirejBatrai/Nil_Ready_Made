@@ -10,6 +10,9 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
 - **Real protections exist only on the server**: TanStack Start server functions plus MongoDB.
   Route guards (`beforeLoad` redirects) are convenience only; `requireOwner` is the enforcement.
 - Hosting is not set up. Everything below is verified locally with an isolated database.
+- **Production target: a Node.js server** (decision
+  [0001](decisions/0001-runtime-node-not-workers.md)). Statements about Cloudflare Workers below
+  are **historical**: kept for the record, not a deployment target.
 
 ## Authentication
 
@@ -27,10 +30,14 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
 ### Login attempt limits (`src/server/auth/auth.server.ts`, VERIFIED 2026-10-24, updated 2026-10-27)
 
 - **Address** (`src/server/auth/client-address.server.ts`, 2026-10-27):
-  - **On Cloudflare Workers** (detected by `navigator.userAgent === "Cloudflare-Workers"`, a
-    property of the runtime that requests cannot change): `CF-Connecting-IP`, which Cloudflare's
-    edge sets and overwrites. **NOT VERIFIED** on workerd or a deployment.
-  - **Everywhere else** (Node.js, Bun, `vite dev`): the socket address from `getRequestIP()`
+  - _Historical (Workers target, decision 0001):_ **on Cloudflare Workers** (detected by
+    `navigator.userAgent === "Cloudflare-Workers"`, a property of the runtime that requests
+    cannot change): `CF-Connecting-IP`, which Cloudflare's edge sets and overwrites. Step 4
+    (local workerd, 2026-10-28) confirmed the detection, but local `wrangler dev` passes a
+    client's own `CF-Connecting-IP` through (a spoofed value bypassed the limit locally); the
+    edge overwrite is NOT VERIFIED. The code path remains (candidate for removal).
+  - **Everywhere else, including the production Node.js server** (Node.js, Bun, `vite dev`):
+    the socket address from `getRequestIP()`
     (no options, so `X-Forwarded-For` is not read; srvx trusts no proxy by default). Every
     header is ignored, including `CF-Connecting-IP`, `X-Forwarded-For` and `X-Real-IP`
     (unit- and E2E-tested). There is **no setting** to trust proxy headers.
@@ -113,8 +120,9 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
   keeping `Cache-Control` on hashed `/assets/*` responses, `no-store` for other path spellings,
   copying redirects / `Set-Cookie` / streamed bodies, both error-page paths in `src/server.ts`
   (mocked entry), an unreadable environment, and `public/_headers` holding exactly the baseline.
-- **Not verified** (source/docs only): Cloudflare applying `public/_headers`, reading
-  `SECURITY_HSTS_MAX_AGE` on Workers, and the request URL scheme on Workers.
+- _Historical (Workers target):_ Cloudflare applying `public/_headers`, reading
+  `SECURITY_HSTS_MAX_AGE` on Workers and the request URL scheme on Workers were never verified on
+  a deployment; Step 4 saw all three work under local workerd.
 
 | Header                      | Value                                                                                                                              |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -141,12 +149,12 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
   `includeSubDomains`/`preload`. Owner rollout after HTTPS on the real domain is verified:
   300 → 86400 → 31536000. Removing the setting does not clear what browsers already stored; to
   back out, set a small value (e.g. `1`) so returning HTTPS visits replace it. Reading the
-  setting on Workers via `process.env` is NOT VERIFIED (same mechanism as `MONGODB_URI`).
-- **Behind a TLS-terminating proxy** that forwards plain `http` to the app (e.g. a Node.js host
-  behind a load balancer), the request URL is `http:`, so HSTS is **never** sent, even with the
-  setting. This fails safe; enabling HSTS there would need trusted-proxy handling (not built) or
-  HSTS set at the proxy. On Cloudflare Workers the request URL is the visitor's `https:` URL
-  (NOT VERIFIED on a deployment).
+  setting on Workers via `process.env` was only checked under local workerd (historical).
+- **Behind a TLS-terminating proxy** that forwards plain `http` to the app (the likely setup for
+  the Node.js server: reverse proxy, load balancer, Cloudflare proxy or Tunnel), the request URL
+  is `http:`, so HSTS is **never** sent, even with the setting. This fails safe; enabling HSTS
+  there needs trusted-proxy handling (not built; required before any real deployment, see
+  [ROADMAP.md](ROADMAP.md)) or HSTS set at the proxy.
 - A full Content-Security-Policy (scripts/styles) is **not** set: the hydration scripts, the
   error page's inline style and `onclick`, and Google Fonts would need nonces or allowlists.
 - A future camera barcode scanner needs `camera=(self)` in both the constant and `public/_headers`.
@@ -207,15 +215,16 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
 
 ## Known security limitations (open)
 
-- In-memory login limits and hashing bound: reset on restart and are per process (on Cloudflare
-  Workers, per isolate), so several instances each allow their own quota. A shared store is not
-  built.
-- Client address on Cloudflare Workers (`CF-Connecting-IP`, runtime detection) is NOT VERIFIED
-  on workerd or a deployment. If it were missing there, every login would fall back to the
-  per-account limit only (no shared bucket, but no per-address limit either).
-- Behind a TLS-terminating proxy or load balancer on a Node.js host, the socket address is the
-  proxy's, so all visitors would share the proxy's address limit (20 per 15 minutes). Trusted
-  proxy handling is not built (no setting exists); it would need its own approved step.
+- In-memory login limits and hashing bound: reset on restart and are per process, so several
+  processes or instances each allow their own quota. A shared store is not built. One Node.js
+  process gives exactly the documented limits.
+- **Required before any real deployment — trusted-proxy handling:** behind a reverse proxy, load
+  balancer, Cloudflare proxy or Cloudflare Tunnel, the socket address is the proxy's, so all
+  visitors share one address and the per-address limit (20 per 15 minutes) becomes a **global
+  lockout**. Trusted-proxy handling is not built (no setting exists); its design depends on the
+  hosting choice and needs its own approved step.
+- _Historical (Workers target):_ client address on Cloudflare Workers (`CF-Connecting-IP`) was
+  never verified on a deployment; locally a client-supplied value was passed through (Step 4).
 - The per-account limit (50 per 15 minutes) lets attackers with at least 10 addresses block the
   owner's login while the attack lasts. Without an address, an attacker can also push the
   owner's count out of the 10 000-key cap by flooding other emails (bounded by the hashing
@@ -223,9 +232,9 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
 - An attacker who keeps the hashing limit full makes every login answer "Too many attempts"
   until the attack stops (resources stay bounded; availability does not).
 - Every login request, including throttled ones, opens the database connection first
-  (`withDatabase` wraps the whole login); on Workers that is one connection per request.
-- No full Content-Security-Policy (only `frame-ancestors`); HSTS not enabled anywhere yet; static
-  file headers on Cloudflare not verified.
+  (`withDatabase` wraps the whole login); on the Node.js server it reuses the shared connection
+  (on Workers it would have been one connection per request; historical).
+- No full Content-Security-Policy (only `frame-ancestors`); HSTS not enabled anywhere yet.
 - No audit log of logins or product changes yet.
 - No password reset; no employee accounts.
 - Production cookie needs HTTPS; hosting, Atlas network access and backups are undecided.

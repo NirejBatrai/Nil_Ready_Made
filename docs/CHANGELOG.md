@@ -4,6 +4,22 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-10-28 — Steps 4 and 5a: Workers runtime test and decision to run on a Node server
+
+- Step 4: time-boxed local test of the app under Cloudflare's runtime (`wrangler dev --local`,
+  workerd, throwaway `mongod` on 127.0.0.1) on the throwaway branch `spike/workers-runtime`
+  (worktree `../Nil_Ready_made-spike-workers`; not merged, no code copied into this branch).
+  Results: the app as built cannot load the MongoDB driver under workerd
+  (`No such module "node:process"`); connections cannot be reused across requests; one scrypt
+  hash costs ~275–340 ms (Free plan CPU limit: 10 ms); locally a client-supplied
+  `CF-Connecting-IP` bypassed the per-address limit. Full table:
+  [decisions/0001](decisions/0001-runtime-node-not-workers.md).
+- Step 5a (owner decision): production runs as a **Node.js server** (Node LTS). Recorded in
+  `docs/decisions/0001-runtime-node-not-workers.md`; ROADMAP, ARCHITECTURE, SECURITY, TESTING and
+  PROJECT_STATUS now name the Node target and mark Workers-specific statements historical.
+  ROADMAP gains "Required before any real deployment: trusted-proxy handling".
+- The owner pushed `feature/mongodb-foundation` to GitHub (2026-10-28).
+
 ## 2026-10-27/28 — Step 3: stale product list after creation, root cause and fix (committed 2026-10-28; hash in `git log`)
 
 - Re-verified 2026-10-28 by a new agent (the earlier loop evidence was deleted):

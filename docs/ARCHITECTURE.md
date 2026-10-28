@@ -13,9 +13,14 @@ _VERIFIED against the source on 2026-10-23 (updated 2026-10-24) unless marked ot
 | Validation      | Zod `^3.25.76`                                                                             |
 | Tests           | Vitest `^4.1.10`, mongodb-memory-server `11.3.0`, playwright-core `1.64.1` (dev only)      |
 
-Build target: Nitro preset defaults to **`cloudflare-module`** (Workers, `nodejs_compat`); no
-override in `vite.config.ts`. `nitro.config.ts` aliases `punycode/` so the MongoDB driver bundles
-for that target. Hosting is paused; see [PROJECT_STATUS.md](PROJECT_STATUS.md).
+**Runtime target: a Node.js server (Node LTS)**, not Cloudflare Workers. See
+[decisions/0001-runtime-node-not-workers.md](decisions/0001-runtime-node-not-workers.md). The
+hosting provider is not chosen; see [PROJECT_STATUS.md](PROJECT_STATUS.md).
+
+Build target until Step 5b (historical): the Lovable default Nitro preset **`cloudflare-module`**
+(Workers, `nodejs_compat`), with no override in `vite.config.ts`. `nitro.config.ts` aliases
+`punycode/` so the MongoDB driver bundled for that target. Step 5b switches the build to Nitro's
+`node-server` preset.
 
 ## Directory map
 
@@ -84,12 +89,12 @@ functions, and choosing a demo role creates no session (tested in E2E).
   rules: [SECURITY.md](SECURITY.md#security-headers).
 - Static files do **not** pass through it in dev: Vite serves `public/` and modules itself
   (VERIFIED in E2E: `favicon.ico` carries none of the security headers).
-- On Cloudflare (NOT VERIFIED on a deployment; checked only in the installed Nitro source): the
+- _Historical (Workers target, decision 0001):_ on Cloudflare (NOT VERIFIED on a deployment; checked only in the installed Nitro source): the
   `cloudflare-module` handler sends public asset URLs to the `ASSETS` binding before the app,
   and Nitro writes a `wrangler.json` with that binding by default (`deployConfig` defaults to
   true). Cloudflare's documentation says it can also serve assets without running the Worker
   (NOT VERIFIED).
-- Static-file headers come from `public/_headers`, which Nitro merges into
+- _Historical (Workers target):_ static-file headers came from `public/_headers`, which Nitro merges into
   `.output/public/_headers` (VERIFIED in the E2E production build of the isolated copy). Whether
   Cloudflare applies it: NOT VERIFIED (needs a real deployment or `wrangler`).
 
@@ -155,7 +160,9 @@ during navigation; owner pages use blocking reload so they never render stale da
 ## Connection behavior
 
 `db.server.ts` reads `MONGODB_URI` at call time. On Node.js one connection is shared per
-process; on Cloudflare Workers (if ever used) each call opens and destroys its own connection.
+process (the production runtime). On Cloudflare Workers each call would open and destroy its own
+connection: that code path remains but is historical (decision 0001; Step 4 confirmed that
+workerd cannot reuse a connection across requests).
 Options: small pool, `serverSelectionTimeoutMS` 5000, `bufferCommands: false`,
 `autoIndex: false`, `autoCreate: false`. Errors become `DatabaseUnavailableError` with no
 connection details.
