@@ -1,6 +1,6 @@
 # Testing
 
-_Commands VERIFIED from `package.json` and by running them on 2026-10-23, 2026-10-24, 2026-10-25 and 2026-10-27._
+_Commands VERIFIED from `package.json` and by running them on 2026-10-23, 2026-10-24, 2026-10-25, 2026-10-27 and 2026-10-28._
 
 ## Prerequisites
 
@@ -30,20 +30,20 @@ How `.env` is kept out of tests (VERIFIED 2026-10-24):
 
 ## Commands
 
-| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                                                   |
-| ------------------------ | --------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (10-27)                                                                                                           |
-| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                                                           |
-| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (10-27)                                                                             |
-| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (10-27)                                                                                      |
-| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 219 passed, 0 failed, 38 skipped (10-27, Step 2)                                                                         |
-| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                                                  |
-| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 36 passed, 0 failed, 1 skipped, two runs (10-27, Step 2); an earlier run that day had an intermittent failure, see below |
-| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                                                 |
-| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                                                    |
-| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                                                    |
-| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                                                        |
-| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                                                    |
+| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                                                    |
+| ------------------------ | --------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (10-28, with Step 3)                                                                                               |
+| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                                                            |
+| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (10-28, with Step 3)                                                                 |
+| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (10-28, with Step 3)                                                                          |
+| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 219 passed, 0 failed, 38 skipped (10-28, with Step 3)                                                                     |
+| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                                                   |
+| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 36 passed, 0 failed, 1 skipped (10-28, with Step 3); the former intermittent failure is fixed, see Known test limitations |
+| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                                                  |
+| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                                                     |
+| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                                                     |
+| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                                                         |
+| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                                                     |
 
 Do not run the `.env`-loading commands unless the owner asks; prefer that the owner runs them.
 If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier …` are equivalent.
@@ -78,7 +78,7 @@ If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier
    (a real address is detected in dev; spoofed `CF-Connecting-IP` / `X-Forwarded-For` /
    `X-Real-IP` on a replayed login are ignored),
    `/login` UI, `/owner/products` (guards, no cost, loading/empty/error states),
-   `/owner/products/new` (creation, validation, duplicates, 5-way concurrent replays,
+   `/owner/products/new` (creation, no stale list rendered afterwards, validation, duplicates, 5-way concurrent replays,
    server-controlled fields rejected), demo unchanged, leak scan of every response, security
    headers on pages, 404s, redirects, signed-in owner pages, server functions, CSRF 403s and
    database-down pages (exact values; no HSTS over http; `favicon.ico` bypasses the app), and a production build
@@ -112,10 +112,9 @@ there with a minimal environment, then copy back only `src/routeTree.gen.ts`.
 ## Known test limitations
 
 - E2E needs Chrome and ~95–105 s; it is opt-in.
-- **Intermittent E2E failure (NOT root-caused, 2026-10-27):** in one of two full runs, the
-  product list showed its empty state right after a product was created
-  (`auth.e2e.test.ts:739`); the other run passed. Rerun once before treating a failure there
-  as a regression, and report both runs.
+- Transient UI states (e.g. a stale list shown for a few milliseconds) are invisible to one-off
+  checks. Record them with a `MutationObserver` installed before the action, as the product
+  creation test does (2026-10-27: a one-off check missed a 40/40 stale render 0/40 times).
 - The per-address limit tests run up to ~40 real scrypt checks each, so they use a 60 s timeout.
   Each auth test gets fresh limiters; tests that share the process-wide hashing bound must not
   leave slots busy.

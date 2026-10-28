@@ -4,7 +4,53 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
-## 2026-10-27 — Step 2: login client address and per-account limit (uncommitted, awaiting owner review)
+## 2026-10-27/28 — Step 3: stale product list after creation, root cause and fix (committed 2026-10-28; hash in `git log`)
+
+- Re-verified 2026-10-28 by a new agent (the earlier loop evidence was deleted):
+  - Mutation check: with only the `staleReloadMode: "blocking"` line removed from
+    `src/routes/owner.products.tsx`, the creation E2E test failed
+    (`expected { armed: true, shown: true } to deeply equal { armed: true, shown: false }`);
+    file restored, SHA-256 identical to before.
+  - With the fix: the creation test and the four tests it depends on (`vitest -t`), 15 separate
+    runs, each with a fresh isolated copy, database and dev server: **15/15 passed**.
+  - Full checks with Step 3: typecheck, lint (0 errors, 11 known warnings), format check,
+    `bun run test` (219 passed, 38 skipped), `bun run test:e2e` (36 passed, 1 skipped).
+  - `/owner/products/new` does **not** call `router.invalidate()` after a successful create
+    (it only navigates); left unchanged. Documented as a convention in
+    [ARCHITECTURE.md](ARCHITECTURE.md#router-data-after-mutations).
+- Docs: `PROJECT_STATUS.md` no longer records commit hashes (state by step name; see `git log`).
+
+- Symptom: the E2E check "the earlier (now stale, empty) list may never be shown" failed
+  intermittently (about 1 in 7 full runs on 2026-10-27).
+- Reproduced with a temporary loop (40 iterations of the exact scenario in one browser session,
+  with a `MutationObserver` on the page and every server-function request/response recorded;
+  file deleted afterwards): the stale empty list was **rendered after every create, 40/40**,
+  for 11–38 ms (median 17.5 ms) before the fresh rows replaced it. The original one-off check
+  ran ~140 ms after submit, so it caught the window **0/40** times in that loop: the bug was
+  deterministic, its detection was not.
+- Root cause (app, TanStack Router `@tanstack/router-core` 1.170.x, `load-client.js`): leaving
+  `/owner/products` for `/owner/products/new` caches the list match (as a preload, line 1139);
+  coming back finds it stale (`defaultPreloadStaleTime: 0`, lines 330–331) with status
+  `success`, so the loader reloads in the **background** (line 346) and the cached data renders
+  first. `router.invalidate()` would not help: invalidated cached matches keep status
+  `success` and still reload in the background (`router.js` `invalidate`).
+- Ruled out with the recorded traces: navigation before the create resolved (the form awaits
+  `createProductForOwner` before `navigate`; in all 40 runs the list request was sent after
+  the create response); the database (one list request after the create, its response rendered
+  the new row; DB count 1 every time; same MongoDB); a test-only race (the stale render happens
+  in the app; the test's intent was right, only its one-off check was timing-dependent).
+- Fix: `src/routes/owner.products.tsx` loader uses `staleReloadMode: "blocking"`, so returning
+  to the list waits for fresh data (the existing loading state appears after 200 ms) instead of
+  showing cached data. No other route changed; no cache times changed.
+- Test: the E2E creation test now records with a `MutationObserver` whether the empty list is
+  ever rendered between submit and the new row (deterministic) instead of a one-off check.
+  Mutation check: route restored to the committed version → the test failed (`shown: true`);
+  fix restored byte-identical (SHA-256).
+- Loop results: before 40/40 stale renders; after **0/40**, median submit→rows 129 ms (before:
+  127.5 ms). This corrects the 2026-10-23 note below ("disproved"): the earlier suspicion was
+  right; that test had also only checked once.
+
+## 2026-10-27 — Step 2: login client address and per-account limit (commit `306916c`)
 
 - Problem: `session-context.server.ts` used `getRequestIP() ?? "unknown"`, so if no address was
   available every client shared one bucket and 20 failures from anyone blocked everyone.

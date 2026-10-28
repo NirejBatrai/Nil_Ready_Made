@@ -35,18 +35,24 @@ export const Route = createFileRoute("/owner/products")({
     if (!user) throw toLogin();
     return { authUnavailable: false };
   },
-  loader: async ({ context }) => {
-    if (context.authUnavailable) return { state: "unavailable" as const, products: [] };
-    try {
-      return { state: "ok" as const, products: await listProductsForOwner({ data: {} }) };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "";
-      if (message === SAFE_MESSAGES.notSignedIn || message === SAFE_MESSAGES.notAllowed)
-        throw toLogin();
-      if (message === SAFE_MESSAGES.unavailable)
-        return { state: "unavailable" as const, products: [] };
-      return { state: "error" as const, products: [] };
-    }
+  loader: {
+    // Leaving this page caches its data; by default, coming back (e.g. right after creating a
+    // product) renders that stale list first and reloads in the background. Blocking makes the
+    // router wait for the fresh list instead, so an outdated list is never shown.
+    staleReloadMode: "blocking",
+    handler: async ({ context }) => {
+      if (context.authUnavailable) return { state: "unavailable" as const, products: [] };
+      try {
+        return { state: "ok" as const, products: await listProductsForOwner({ data: {} }) };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        if (message === SAFE_MESSAGES.notSignedIn || message === SAFE_MESSAGES.notAllowed)
+          throw toLogin();
+        if (message === SAFE_MESSAGES.unavailable)
+          return { state: "unavailable" as const, products: [] };
+        return { state: "error" as const, products: [] };
+      }
+    },
   },
   pendingMs: 200,
   pendingComponent: () => (

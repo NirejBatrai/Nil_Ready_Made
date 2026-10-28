@@ -709,6 +709,19 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
 
       it("creates a multi-variant product: normalized SKUs/barcode, stock 0, cost stored but never returned", async () => {
         await loginPage.goto(`${base}/owner/products`, { waitUntil: "networkidle" });
+        // The list starts empty, so the router has an empty list cached once we leave the page.
+        await loginPage.getByTestId("products-empty").waitFor();
+        // Records whether the empty list is ever rendered after submitting, however briefly
+        // (the stale list used to show for ~10–40 ms, too short for a one-off check).
+        await loginPage.evaluate(() => {
+          const w = window as Window & { __staleList?: { armed: boolean; shown: boolean } };
+          const state = { armed: false, shown: false };
+          w.__staleList = state;
+          new MutationObserver(() => {
+            if (state.armed && document.querySelector('[data-testid="products-empty"]'))
+              state.shown = true;
+          }).observe(document.body, { subtree: true, childList: true });
+        });
         await loginPage.getByTestId("add-product-link").click();
         await loginPage.waitForSelector('[data-testid="np-submit"]:not([disabled])');
         const firstResponse = responses.length;
@@ -727,17 +740,23 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         await loginPage.getByTestId("np-add-variant").click();
         await variant(2, "SKU").fill("lx-e2e-new-m");
         await variant(2, "size").fill("M");
+        await loginPage.evaluate(() => {
+          const w = window as Window & { __staleList?: { armed: boolean; shown: boolean } };
+          if (w.__staleList) w.__staleList.armed = true;
+        });
         await loginPage.getByTestId("np-submit").click();
         await loginPage.waitForURL(`${base}/owner/products`);
         const row = loginPage.locator('[data-testid="product-row"]', {
           hasText: "E2E Linen Shirt",
         });
-        // The list must load fresh: the earlier (now stale, empty) list may never be shown.
-        await loginPage.waitForSelector(
-          '[data-testid="products-table"], [data-testid="products-empty"]',
-        );
-        expect(await loginPage.getByTestId("products-empty").count()).toBe(0);
         await row.waitFor({ timeout: 5000 });
+        // The list must load fresh: the earlier (now stale, empty) list may never be shown.
+        expect(
+          await loginPage.evaluate(() => {
+            const w = window as Window & { __staleList?: { armed: boolean; shown: boolean } };
+            return w.__staleList;
+          }),
+        ).toEqual({ armed: true, shown: false });
         expect((await row.locator("td").allTextContents()).slice(1, 6)).toEqual([
           "LX-E2E-NEW",
           "Dresses",

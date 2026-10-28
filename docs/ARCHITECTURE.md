@@ -138,6 +138,20 @@ Zod strict parse (normalizes SKU/barcode, rejects unknown/stock fields) → `pro
 → `verifyProductIndexes` (fail closed) → Mongoose `create` (schema validation; unique indexes
 decide duplicates, including concurrent ones) → cost-free `PublicProduct` returned.
 
+## Router data after mutations
+
+Convention (2026-10-28): **after any server mutation, invalidate affected router data before or
+during navigation; owner pages use blocking reload so they never render stale data.**
+
+- Why: the router caches a page's loader data when you leave it (`defaultPreloadStaleTime: 0`
+  in `src/router.tsx` marks it stale at once), and by default a stale cached match renders its
+  old data first and reloads in the background.
+- `/owner/products` sets `staleReloadMode: "blocking"` on its loader, so returning to it waits
+  for fresh data (its pending state shows after 200 ms).
+- Current gap (VERIFIED 2026-10-28): `/owner/products/new` awaits `createProductForOwner` and
+  then calls `navigate({ to: "/owner/products" })` without `router.invalidate()`; the list is
+  fresh only because of the blocking loader. New owner pages need both.
+
 ## Connection behavior
 
 `db.server.ts` reads `MONGODB_URI` at call time. On Node.js one connection is shared per
