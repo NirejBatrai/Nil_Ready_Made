@@ -58,6 +58,7 @@ Commit hashes refer to this repository. Each heading names the commit that conta
 - Step 4: time-boxed local test of the app under Cloudflare's runtime (`wrangler dev --local`,
   workerd, throwaway `mongod` on 127.0.0.1) on the throwaway branch `spike/workers-runtime`
   (worktree `../Nil_Ready_made-spike-workers`; not merged, no code copied into this branch).
+  The branch and worktree were throwaway and have since been removed by the owner.
   Results: the app as built cannot load the MongoDB driver under workerd
   (`No such module "node:process"`); connections cannot be reused across requests; one scrypt
   hash costs ~275–340 ms (Free plan CPU limit: 10 ms); locally a client-supplied
@@ -67,7 +68,6 @@ Commit hashes refer to this repository. Each heading names the commit that conta
   `docs/decisions/0001-runtime-node-not-workers.md`; ROADMAP, ARCHITECTURE, SECURITY, TESTING and
   PROJECT_STATUS now name the Node target and mark Workers-specific statements historical.
   ROADMAP gains "Required before any real deployment: trusted-proxy handling".
-- The owner pushed `feature/mongodb-foundation` to GitHub (2026-10-28).
 
 ## 2026-10-27/28 — Step 3: stale product list after creation, root cause and fix (committed 2026-10-28; hash in `git log`)
 
@@ -153,8 +153,8 @@ Commit hashes refer to this repository. Each heading names the commit that conta
 
 - Read-only status review found the docs out of date: the security-headers work had been
   committed on 2026-10-25 as `4711be0` (message "nil comit"), on top of `42518cc` (login
-  hardening), while the docs still called it uncommitted. Both commits are local only, not
-  pushed. `main` (`49aba5c`) and the backup refs (`8d1fcda`, `46b1fe8`) unchanged.
+  hardening), while the docs still called it uncommitted. `main` (`49aba5c`) and the backup
+  refs (`8d1fcda`, `46b1fe8`) unchanged.
 - Docs corrected: PROJECT_STATUS (Git state, results, limitations), ROADMAP (completed rows for
   `42518cc`/`4711be0`, four new candidate rows), TESTING (results, new scripts, flaky test),
   SECURITY (security-headers section separates E2E-verified from unit-only items; HSTS is
@@ -178,7 +178,7 @@ Commit hashes refer to this repository. Each heading names the commit that conta
   when `getRequestIP()` returns nothing (behaviour on Workers NOT VERIFIED); Mongoose and scrypt
   have never run under workerd; scrypt CPU cost per login not measured.
 
-## 2026-10-24/25 — Baseline security headers (commit `4711be0`, local, not pushed)
+## 2026-10-24/25 — Baseline security headers (commit `4711be0`)
 
 - `src/server/security-headers.server.ts` (new) + `src/server.ts`: every dynamic response
   (pages, redirects, 404s, server functions, CSRF 403s, both error-page paths) gets
@@ -217,7 +217,7 @@ Commit hashes refer to this repository. Each heading names the commit that conta
   that day failed in setup with every test skipped; the error was not captured and it did not
   recur in two further full runs); nothing left running.
 
-## 2026-10-24 — Login hardening (commit `42518cc`, local, not pushed)
+## 2026-10-24 — Login hardening (commit `42518cc`)
 
 - Fixes the audit's High finding: simultaneous wrong passwords all reached scrypt (30 of 30),
   because the limit was checked before hashing but failures were recorded after.
@@ -240,7 +240,7 @@ Commit hashes refer to this repository. Each heading names the commit that conta
 - Results: `tsc` exit 0; lint 0 errors / 11 warnings; `bun run test` 175 passed, 0 failed,
   36 skipped; `bun run test:e2e` 34 passed, 0 failed, 1 skipped; nothing left running.
 
-## 2026-10-24 — Foundation work committed (local, not pushed)
+## 2026-10-24 — Foundation work committed
 
 - `ced5535` `feat: add secure owner authentication and product management foundation` (28 files):
   product model/service and Backend Steps 2a–3b, with their tests.
@@ -248,8 +248,8 @@ Commit hashes refer to this repository. Each heading names the commit that conta
   `docs/`, `envDir: false`, `safeErrors` on `getDatabaseHealth`, new source check.
 - Staged by explicit file paths after checking both file lists against the working tree; no `.env`
   or secrets included. Working tree clean afterwards on `feature/mongodb-foundation`.
-- Neither commit was pushed; no history was amended or rewritten; `main` and the local backup refs
-  were not changed. GitHub was not checked. This status update is a separate docs-only commit.
+- No history was amended or rewritten; `main` and the local backup refs were not changed. This
+  status update is a separate docs-only commit.
 
 ## 2026-10-24 — Handbook audit corrections and hardening (committed in `4da3c13`)
 
@@ -321,14 +321,14 @@ Commit hashes refer to this repository. Each heading names the commit that conta
   (5 / email+IP / 15 min), `single_owner` index, local `bun run auth:create-owner`, dev server
   bound to `127.0.0.1`. Employee accounts, audit, password reset postponed by the owner.
 
-## 2026-10-23 — Backend Step 1: MongoDB connection foundation (`722d86f`, local branch, not pushed)
+## 2026-10-23 — Backend Step 1: MongoDB connection foundation (`722d86f`)
 
 - Mongoose `9.11.3`, server-only `db.server.ts`, dev-only health check, `.env.example`,
   `nitro.config.ts` punycode alias for the Cloudflare build.
 - Connections are released with `destroy()` (only it removes them from `mongoose.connections`).
 - An intermittent Atlas failure was diagnosed as network timeouts, not a code regression.
 
-## 2026-10-23 — Repository and demo work (on `main`; matches `origin/main` per the local tracking ref)
+## 2026-10-23 — Repository and demo work (on `main`)
 
 - `49aba5c` Prepare repository for private GitHub hosting (`.env*` ignored, README/AGENTS updated).
 - `e7af41a` Enforce minimum selling price at checkout and in the sale-creation layer.

@@ -18,20 +18,20 @@ Luxe Retail OS is a mobile-first POS / back-office app for a small shop in Thail
 - **Not yet built:** product editing/archiving UI, sales, refunds, inventory movements, payments,
   employees, audit log, password reset, deployment. See [ROADMAP.md](ROADMAP.md).
 
-## Git state (VERIFIED 2026-10-28, local repository only)
+## Git state (VERIFIED 2026-10-29, local repository only)
 
 | Item              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Current branch    | `feature/mongodb-foundation`, tracking `origin/feature/mongodb-foundation` (pushed by the owner on 2026-10-28; the local tracking ref matched HEAD then). Later commits are local until pushed; check `git status`                                                                                                                                                                                                                                  |
+| Current branch    | `feature/mongodb-foundation`. Push status is not tracked in the docs; check `git status` / `git log origin/feature/mongodb-foundation..`                                                                                                                                                                                                                                                                                                            |
 | Committed work    | All of the following is committed on this branch (not merged into `main`): connection foundation, product model/service, Backend Steps 2a–3b, agent handbook and test-isolation hardening, login hardening, security headers, Step 1 (docs/tooling hygiene), Step 2 (login client address + per-account limit), Step 3 (stale product list fix), Step 5a (runtime decision record), Step 5b (build target Node server), Step 7a (session hardening) |
 | Uncommitted work  | None expected; check `git status`                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Commit hashes     | See `git log --oneline main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                                                                                            |
-| `main`            | Matches `origin/main` according to the local remote-tracking ref (last updated 2026-10-23, not re-fetched)                                                                                                                                                                                                                                                                                                                                          |
+| `main`            | Not changed by the backend work; compare with `git log main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                                                            |
 | Local backup refs | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                                                                                                                                                              |
 
-Pushing or merging the branch requires the owner's approval. A throwaway branch
-`spike/workers-runtime` (Step 4, worktree `../Nil_Ready_made-spike-workers`) exists locally; it
-is not to be merged.
+Pushing or merging the branch requires the owner's approval. The throwaway Step 4 branch
+`spike/workers-runtime` and its worktree `../Nil_Ready_made-spike-workers` were never merged and
+have been removed by the owner.
 
 ## Completed backend steps (VERIFIED in source and tests)
 
@@ -83,8 +83,7 @@ builds production output in an isolated copy instead. See [TESTING.md](TESTING.m
 ## Next approved action
 
 None. Step 7a (session hardening) is committed; Step 7b (idle timeout / PIN lock) is planned with the employee design, not approved. Step 4 (Workers runtime test) is done:
-its result is decision 0001; the throwaway branch `spike/workers-runtime` is not merged and
-waits for the owner to remove it. Merging the branch needs the owner's approval. Backend Step 3c has **not** been approved. Wait
+its result is decision 0001; its throwaway branch and worktree have been removed. Merging the branch needs the owner's approval. Backend Step 3c has **not** been approved. Wait
 for the owner's explicit approval and scope before implementing anything new. Candidate next
 steps are listed (unapproved) in [ROADMAP.md](ROADMAP.md).
 
