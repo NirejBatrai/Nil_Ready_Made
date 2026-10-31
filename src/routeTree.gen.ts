@@ -28,6 +28,7 @@ import { Route as DevAuthRouteImport } from './routes/dev.auth'
 import { Route as DevDbHealthRouteImport } from './routes/dev.db-health'
 import { Route as OwnerProductsRouteImport } from './routes/owner.products'
 import { Route as OwnerProductsNewRouteImport } from './routes/owner.products_.new'
+import { Route as OwnerProductsProductIdEditRouteImport } from './routes/owner.products_.$productId.edit'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -123,6 +124,12 @@ const OwnerProductsNewRoute = OwnerProductsNewRouteImport.update({
   path: '/owner/products/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OwnerProductsProductIdEditRoute =
+  OwnerProductsProductIdEditRouteImport.update({
+    id: '/owner/products_/$productId/edit',
+    path: '/owner/products/$productId/edit',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -143,6 +150,7 @@ export interface FileRoutesByFullPath {
   '/dev/db-health': typeof DevDbHealthRoute
   '/owner/products': typeof OwnerProductsRoute
   '/owner/products/new': typeof OwnerProductsNewRoute
+  '/owner/products/$productId/edit': typeof OwnerProductsProductIdEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -163,6 +171,7 @@ export interface FileRoutesByTo {
   '/dev/db-health': typeof DevDbHealthRoute
   '/owner/products': typeof OwnerProductsRoute
   '/owner/products/new': typeof OwnerProductsNewRoute
+  '/owner/products/$productId/edit': typeof OwnerProductsProductIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -185,6 +194,7 @@ export interface FileRoutesById {
   '/dev/db-health': typeof DevDbHealthRoute
   '/owner/products': typeof OwnerProductsRoute
   '/owner/products_/new': typeof OwnerProductsNewRoute
+  '/owner/products_/$productId/edit': typeof OwnerProductsProductIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -207,6 +217,7 @@ export interface FileRouteTypes {
     | '/dev/db-health'
     | '/owner/products'
     | '/owner/products/new'
+    | '/owner/products/$productId/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -227,6 +238,7 @@ export interface FileRouteTypes {
     | '/dev/db-health'
     | '/owner/products'
     | '/owner/products/new'
+    | '/owner/products/$productId/edit'
   id:
     | '__root__'
     | '/'
@@ -248,6 +260,7 @@ export interface FileRouteTypes {
     | '/dev/db-health'
     | '/owner/products'
     | '/owner/products_/new'
+    | '/owner/products_/$productId/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -258,6 +271,7 @@ export interface RootRouteChildren {
   DevDbHealthRoute: typeof DevDbHealthRoute
   OwnerProductsRoute: typeof OwnerProductsRoute
   OwnerProductsNewRoute: typeof OwnerProductsNewRoute
+  OwnerProductsProductIdEditRoute: typeof OwnerProductsProductIdEditRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -395,6 +409,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OwnerProductsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/owner/products_/$productId/edit': {
+      id: '/owner/products_/$productId/edit'
+      path: '/owner/products/$productId/edit'
+      fullPath: '/owner/products/$productId/edit'
+      preLoaderRoute: typeof OwnerProductsProductIdEditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -438,6 +459,7 @@ const rootRouteChildren: RootRouteChildren = {
   DevDbHealthRoute: DevDbHealthRoute,
   OwnerProductsRoute: OwnerProductsRoute,
   OwnerProductsNewRoute: OwnerProductsNewRoute,
+  OwnerProductsProductIdEditRoute: OwnerProductsProductIdEditRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

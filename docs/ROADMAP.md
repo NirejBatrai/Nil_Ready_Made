@@ -4,7 +4,7 @@ Status labels: **DONE** (verified in code/tests), **PENDING** (not started), **P
 (discussed, not approved). Every new phase or sub-step needs the owner's **explicit approval**
 before implementation, even if it is listed here. Approval of one step does not approve the next.
 
-_Last updated 2026-10-28._ This file supersedes the root `roadmap.md` (demo-era checklist).
+_Last updated 2026-10-31._ This file supersedes the root `roadmap.md` (demo-era checklist).
 
 **Runtime target: a Node.js server** (Node LTS), not Cloudflare Workers. See
 [decisions/0001-runtime-node-not-workers.md](decisions/0001-runtime-node-not-workers.md).
@@ -31,6 +31,7 @@ Workers-specific statements elsewhere in the docs are historical.
 
 | Step 7a — session hardening: revoke all sessions, "Sign out everywhere", old session deleted at login, 5-session cap, `createdIp`/`userAgent`/`lastSeenAt` | DONE | Committed 2026-10-28 |
 | Step 5b — build target Nitro `node-server`; static-file headers from a `nitro.config.ts` route rule (`public/_headers` removed) | DONE | Committed 2026-10-28 |
+| Product edit and archive UI — `/owner/products/$productId/edit`, archive (confirmation) / restore, Archived view; owner-only server functions; no delete | DONE | Committed 2026-10-31 |
 | Step 4 — time-boxed Workers runtime test (local workerd, branch `spike/workers-runtime`, not merged) | DONE | Result: move to a Node server, [decision 0001](decisions/0001-runtime-node-not-workers.md) |
 
 ## Required before any real deployment
@@ -63,7 +64,7 @@ Candidate future work (PLANNED only, order not decided):
 | Persistent (shared) rate-limit storage, so limits survive restarts and hold across processes/instances                                                                                                    | Auth, hosting decision | New step approval                        |
 | Device-cookie exemption for the per-account lockout (OWASP), after persistent rate limits                                                                                                                 | Persistent rate limits | New step approval                        |
 | Owner runs `bun run auth:create-owner` and `bun run db:setup-indexes` on the real DB                                                                                                                      | Owner decision         | Owner runs it (real database writes)     |
-| Product editing / archiving through owner-only server functions                                                                                                                                           | 3b                     | New step approval                        |
+| Product editing / archiving through owner-only server functions — **done 2026-10-31 (committed)**                                                                                                         | 3b                     | Done                                     |
 | Inventory movements (stock history, adjustments)                                                                                                                                                          | Products               | New step approval                        |
 | Sales/checkout against MongoDB (transactions, server-side prices/minimums, no overselling, immutable sales)                                                                                               | Products, inventory    | New step approval                        |
 | Audit log (append-only)                                                                                                                                                                                   | Auth                   | New step approval                        |

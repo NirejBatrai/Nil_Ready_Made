@@ -4,6 +4,45 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-10-31 — Owner product edit and archive UI
+
+- Server functions in `src/lib/products.ts`, all `safeErrors` + `requireOwner`:
+  `getProductForEditing` (GET; the product **without cost**, archived ones included),
+  `updateProductForOwner`, `archiveProductForOwner`, `restoreProductForOwner` (all POST). They
+  pass the untrusted input to the existing product service (`updateProduct`,
+  `setProductActive`), which validates everything again. No service changes; no delete exists.
+- `/owner/products/$productId/edit` (`owner.products_.$productId.edit.tsx`): same styling,
+  fields and messages as the create form. SKU and variants are shown read-only because the
+  service does not allow changing them; stock is never edited. Cost stays write-only: never
+  loaded; an empty field keeps it, "Remove the stored cost" sends `null`. Blocking loader; after
+  a save it calls `router.invalidate()` and then navigates to the list.
+- `/owner/products`: Active (default) and Archived views (`?view=archived`; the server returns
+  all products with `includeArchived: true` and the page keeps the archived ones), an Edit link,
+  Archive behind a confirmation dialog, and Restore. Archive/restore call `router.invalidate()`
+  and finish only after the fresh list has loaded.
+- Behaviour kept from the service: money is **whole baht stored as integers** (not satang);
+  SKU uniqueness cannot be hit by an edit (SKU is not editable; a duplicate-key error would show
+  "That SKU or barcode is already used by another product."); overlapping saves of one product
+  fail with "This product was changed at the same time. Reload it and try again."
+  (optimistic concurrency). A form opened before someone else saved is **not** detected: the
+  later save wins (the service takes no expected version).
+- Tests: `products-server-fns.test.ts` (20 tests) runs the server functions through TanStack
+  Start's real server-side middleware chain against mongodb-memory-server (only the cookie value
+  and `withDatabase` are replaced): refusal without a cookie, with a forged token, for an
+  inactive owner and after logout; validation, server-controlled fields, malformed input,
+  concurrent edits, archive/restore, list filter, no delete function. E2E: 7 new tests (edit
+  page redirect, prefilled form without cost, new values shown with no stale render observed,
+  validation, archive confirmation/cancel, archived view + restore, endpoint session/CSRF/field
+  checks).
+- Mutation checks, each restored byte-identical: `requireOwner` removed from each of
+  `listProductsForOwner`, `getProductForEditing`, `updateProductForOwner`,
+  `archiveProductForOwner`, `restoreProductForOwner` (unit test failed each time: "expected
+  'undefined' to be 'Not signed in.'"); from `updateProductForOwner` in the E2E run (anonymous
+  replay accepted); the service's `{ active: true }` filter removed (1 unit and 4 E2E failures,
+  e.g. "expected [ 'E2E Archived Bag', …(2) ] to deeply equal [ 'E2E Sun Hat', 'E2E Towel' ]").
+- Checks: typecheck, lint (0 errors, 11 known warnings), format check, `bun run test` (250
+  passed, 46 skipped), `bun run test:e2e` (44 passed, 1 skipped).
+
 ## 2026-10-28 — Step 7a: session revocation and login session hygiene
 
 - `revokeAllSessions(userId)` (deletes every session of the user via the `userId` index) and a

@@ -1,6 +1,6 @@
 # Project status
 
-_Last verified: **2026-10-28**, by inspecting the repository and running the checks below._
+_Last verified: **2026-10-31**, by inspecting the repository and running the checks below._
 Update this file whenever the state changes. This file describes work by **step name**, not by
 commit hash; see `git log` for commit hashes (and [CHANGELOG.md](CHANGELOG.md) for which commit
 holds which finished step).
@@ -13,21 +13,22 @@ Luxe Retail OS is a mobile-first POS / back-office app for a small shop in Thail
   cash drawer, approvals, audit, employees, reports, settings) is a **browser-only simulation**
   with fictional data in `localStorage` and simulated roles. VERIFIED.
 - **A real backend is being added alongside it** (TanStack Start server functions + MongoDB via
-  Mongoose), currently covering: database connection, owner login, a read-only owner product
-  list, and owner-only product creation. VERIFIED in code and isolated tests.
-- **Not yet built:** product editing/archiving UI, sales, refunds, inventory movements, payments,
+  Mongoose), currently covering: database connection, owner login, an owner product list
+  (active and archived), and owner-only product creation, editing, archiving and restoring.
+  VERIFIED in code and isolated tests.
+- **Not yet built:** sales, refunds, inventory movements, payments,
   employees, audit log, password reset, deployment. See [ROADMAP.md](ROADMAP.md).
 
 ## Git state (VERIFIED 2026-10-29, local repository only)
 
-| Item              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Current branch    | `feature/mongodb-foundation`. Push status is not tracked in the docs; check `git status` / `git log origin/feature/mongodb-foundation..`                                                                                                                                                                                                                                                                                                            |
-| Committed work    | All of the following is committed on this branch (not merged into `main`): connection foundation, product model/service, Backend Steps 2a–3b, agent handbook and test-isolation hardening, login hardening, security headers, Step 1 (docs/tooling hygiene), Step 2 (login client address + per-account limit), Step 3 (stale product list fix), Step 5a (runtime decision record), Step 5b (build target Node server), Step 7a (session hardening) |
-| Uncommitted work  | None expected; check `git status`                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Commit hashes     | See `git log --oneline main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                                                                                            |
-| `main`            | Not changed by the backend work; compare with `git log main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                                                            |
-| Local backup refs | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                                                                                                                                                              |
+| Item              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current branch    | `feature/mongodb-foundation`. Push status is not tracked in the docs; check `git status` / `git log origin/feature/mongodb-foundation..`                                                                                                                                                                                                                                                                                                                                     |
+| Committed work    | All of the following is committed on this branch (not merged into `main`): connection foundation, product model/service, Backend Steps 2a–3b, agent handbook and test-isolation hardening, login hardening, security headers, Step 1 (docs/tooling hygiene), Step 2 (login client address + per-account limit), Step 3 (stale product list fix), Step 5a (runtime decision record), Step 5b (build target Node server), Step 7a (session hardening), product edit/archive UI |
+| Uncommitted work  | None expected; check `git status`                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Commit hashes     | See `git log --oneline main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `main`            | Not changed by the backend work; compare with `git log main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                                                                                     |
+| Local backup refs | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                                                                                                                                                                                       |
 
 Pushing or merging the branch requires the owner's approval. The throwaway Step 4 branch
 `spike/workers-runtime` and its worktree `../Nil_Ready_made-spike-workers` were never merged and
@@ -44,10 +45,11 @@ have been removed by the owner.
 | 2c — Login UI                       | `/login` (POST form, hydration-guarded), landing-page "Owner sign-in (real account)" link                                                                                                        |
 | 3a — Read-only product list         | `/owner/products` + `listProductsForOwner` (never returns cost); allowlisted `/login?redirect=/owner/products`                                                                                   |
 | 3b — Product creation               | `/owner/products/new` + `createProductForOwner`; SKU/barcode normalization; stock always 0; case-insensitive unique indexes; creation fails closed until indexes exist; local `db:setup-indexes` |
+| Product edit and archive UI         | `/owner/products/$productId/edit` + `getProductForEditing`/`updateProductForOwner`; Archive (confirmation) and Restore on `/owner/products`, Archived view; no delete; cost never loaded         |
 
 Details: [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md).
 
-## Latest check results (VERIFIED 2026-10-28, with Step 7a, unless dated)
+## Latest check results (VERIFIED 2026-10-31, with the product edit/archive UI, unless dated)
 
 | Command                                                   | Result                                                                                                                                                                                                                   |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -55,8 +57,8 @@ Details: [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [CHANGE
 | `bun run typecheck` (`tsc --noEmit -p .`)                 | exit 0                                                                                                                                                                                                                   |
 | `bun run lint`                                            | 0 errors, 11 warnings (pre-existing `react-refresh/only-export-components`)                                                                                                                                              |
 | `bun run format:check` (`prettier --check .`)             | exit 0, all files formatted                                                                                                                                                                                              |
-| `bun run test`                                            | 14 files passed, 2 skipped; **230 tests passed, 0 failed, 39 skipped** (opt-in suites)                                                                                                                                   |
-| `bun run test:e2e`                                        | **37 passed, 0 failed, 1 skipped** (Chrome-not-found placeholder)                                                                                                                                                        |
+| `bun run test`                                            | 15 files passed, 2 skipped; **250 tests passed, 0 failed, 46 skipped** (opt-in suites)                                                                                                                                   |
+| `bun run test:e2e`                                        | **44 passed, 0 failed, 1 skipped** (Chrome-not-found placeholder)                                                                                                                                                        |
 | Production smoke test (Step 5b)                           | Built with `node-server` in an isolated copy, started with `node .output/server/index.mjs` against a throwaway local `mongod`: login, empty list, create, row after reload; headers on pages, `favicon.ico`, `/assets/*` |
 | Product-create E2E chain, 15× in a loop (Step 3)          | **15/15 passed** with the fix; with `staleReloadMode` removed the test failed (`shown: true`). See [CHANGELOG.md](CHANGELOG.md)                                                                                          |
 
@@ -82,7 +84,7 @@ builds production output in an isolated copy instead. See [TESTING.md](TESTING.m
 
 ## Next approved action
 
-None. Step 7a (session hardening) is committed; Step 7b (idle timeout / PIN lock) is planned with the employee design, not approved. Step 4 (Workers runtime test) is done:
+None. The product edit/archive UI is committed; Step 7a (session hardening) is committed; Step 7b (idle timeout / PIN lock) is planned with the employee design, not approved. Step 4 (Workers runtime test) is done:
 its result is decision 0001; its throwaway branch and worktree have been removed. Merging the branch needs the owner's approval. Backend Step 3c has **not** been approved. Wait
 for the owner's explicit approval and scope before implementing anything new. Candidate next
 steps are listed (unapproved) in [ROADMAP.md](ROADMAP.md).
@@ -98,6 +100,9 @@ steps are listed (unapproved) in [ROADMAP.md](ROADMAP.md).
 - Sessions: no idle timeout yet (Step 7b); the 5-session cap is soft under simultaneous logins;
   the TTL index that deletes expired sessions (and their IP/User-Agent) exists only where
   `db:setup-indexes` has run.
+- Product edits: overlapping saves are refused ("changed at the same time"), but a form opened
+  before someone else saved is not detected; the later save wins (the service takes no expected
+  version). SKU and variants cannot be edited (service rule).
 - `/owner/products/new` navigates to the list after a create without calling
   `router.invalidate()`; the list is fresh only because its loader uses blocking reload. See the
   invalidation rule in [ARCHITECTURE.md](ARCHITECTURE.md#router-data-after-mutations).

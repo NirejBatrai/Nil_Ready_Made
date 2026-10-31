@@ -1,6 +1,6 @@
 /**
- * Product server functions. All OWNER-ONLY. Reads plus product creation; used only by the
- * /owner/products pages and /dev/auth, never by the demo screens.
+ * Product server functions. All OWNER-ONLY. Reads, creation, editing and archiving; used only by
+ * the /owner/products pages and /dev/auth, never by the demo screens. There is no delete.
  *
  * Browser code may import this file: handler bodies become RPC stubs in the client bundle and the
  * database code loads only through server-side dynamic imports.
@@ -72,4 +72,73 @@ export const createProductForOwner = createServerFn({ method: "POST" })
       import("@/server/products.server"),
     ]);
     return database.withDatabase((conn) => createProductService(conn).createProduct(data));
+  });
+
+/**
+ * OWNER-ONLY: one product for the edit form, WITHOUT cost (cost stays write-only, as on the
+ * create form), or `null` if it does not exist. Archived products are returned too.
+ */
+export const getProductForEditing = createServerFn({ method: "GET" })
+  .middleware([safeErrors, requireOwner])
+  .inputValidator(productId)
+  .handler(async ({ data }) => {
+    if (!data) return null;
+    const [{ database }, { createProductService }] = await Promise.all([
+      import("@/server/db.server"),
+      import("@/server/products.server"),
+    ]);
+    const product = await database.withDatabase((conn) =>
+      createProductService(conn).getProduct(data),
+    );
+    return product ?? null;
+  });
+
+/** Never throws; both parts are validated strictly by the product service. */
+const productUpdate = (data: unknown): { id: unknown; update: unknown } =>
+  typeof data === "object" && data !== null && "id" in data && "update" in data
+    ? { id: data.id, update: data.update }
+    : { id: null, update: null };
+
+/**
+ * OWNER-ONLY product edit (POST). Only name, category, description, prices, cost (`null` clears
+ * it), image URL and low-stock threshold can change; SKU, variants, stock and the active flag
+ * cannot (unknown fields are rejected). The response is the cost-free public product.
+ */
+export const updateProductForOwner = createServerFn({ method: "POST" })
+  .middleware([safeErrors, requireOwner])
+  .inputValidator(productUpdate)
+  .handler(async ({ data }) => {
+    const [{ database }, { createProductService }] = await Promise.all([
+      import("@/server/db.server"),
+      import("@/server/products.server"),
+    ]);
+    return database.withDatabase((conn) =>
+      createProductService(conn).updateProduct(data.id, data.update),
+    );
+  });
+
+/** OWNER-ONLY: hides a product from the active list. Products are never deleted. */
+export const archiveProductForOwner = createServerFn({ method: "POST" })
+  .middleware([safeErrors, requireOwner])
+  .inputValidator(untrustedInput)
+  .handler(async ({ data }) => {
+    const [{ database }, { createProductService }] = await Promise.all([
+      import("@/server/db.server"),
+      import("@/server/products.server"),
+    ]);
+    return database.withDatabase((conn) =>
+      createProductService(conn).setProductActive(data, false),
+    );
+  });
+
+/** OWNER-ONLY: returns an archived product to the active list. */
+export const restoreProductForOwner = createServerFn({ method: "POST" })
+  .middleware([safeErrors, requireOwner])
+  .inputValidator(untrustedInput)
+  .handler(async ({ data }) => {
+    const [{ database }, { createProductService }] = await Promise.all([
+      import("@/server/db.server"),
+      import("@/server/products.server"),
+    ]);
+    return database.withDatabase((conn) => createProductService(conn).setProductActive(data, true));
   });

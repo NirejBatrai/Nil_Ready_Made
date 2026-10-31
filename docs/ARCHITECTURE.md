@@ -38,13 +38,14 @@ src/
     _shell.tsx            Demo layout (AppShell, simulated role switch)
     _shell.*.tsx          Demo screens (browser-only data)
     login.tsx             REAL owner sign-in            → /login
-    owner.products.tsx    REAL read-only product list   → /owner/products
+    owner.products.tsx    REAL product list, archive/restore → /owner/products (?view=archived)
     owner.products_.new.tsx REAL product creation       → /owner/products/new (trailing _ = not nested)
+    owner.products_.$productId.edit.tsx REAL product edit → /owner/products/$productId/edit
     dev.auth.tsx          Dev-only auth diagnostic      → /dev/auth (only "Not available." in production)
     dev.db-health.tsx     Dev-only DB diagnostic        → /dev/db-health
   lib/                    Browser-importable code
     auth.ts               Server functions: login, logout, getCurrentUser; requireOwner middleware
-    products.ts           Server functions: getProductForOwner, listProductsForOwner, createProductForOwner
+    products.ts           Server functions: get/list/create/edit/archive/restore products (owner only)
     server-errors.ts      safeErrors middleware + toSafeError
     db-health.ts          getDatabaseHealth (dev-only diagnostic)
     calc.ts               Money/pricing rules shared by demo and server
@@ -67,7 +68,7 @@ scripts/                  Local-only CLI scripts run with Bun by the owner
 
 |          | Demo                                                                      | Real backend                                                |
 | -------- | ------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| Routes   | `/`, `/_shell/*` screens (`/pos`, `/products`, …)                         | `/login`, `/owner/products`, `/owner/products/new`          |
+| Routes   | `/`, `/_shell/*` screens (`/pos`, `/products`, …)                         | `/login`, `/owner/products` (+ `/new`, `/$productId/edit`)  |
 | Data     | `localStorage` (`src/lib/repository`, `src/data/demo-seed.ts`), fictional | MongoDB via `src/server/*`                                  |
 | "Roles"  | Simulated Owner/Employee switch; `<OwnerOnly>` is **UI-only**             | Real session cookie checked by `requireOwner` on the server |
 | Security | None (any user can edit browser data)                                     | Server-enforced auth, validation, CSRF, unique indexes      |
@@ -109,16 +110,20 @@ functions, and choosing a demo role creates no session (tested in E2E).
 
 ### Server functions (VERIFIED)
 
-| Function                | Method | Middleware                   | Purpose                                                   |
-| ----------------------- | ------ | ---------------------------- | --------------------------------------------------------- |
-| `login`                 | POST   | `safeErrors`                 | Verify credentials, set session cookie                    |
-| `logout`                | POST   | `safeErrors`                 | Delete session, clear cookie                              |
-| `signOutEverywhere`     | POST   | `safeErrors` + valid session | Delete all of the user's sessions, clear cookie           |
-| `getCurrentUser`        | GET    | `safeErrors`                 | Name and role only, or `null`                             |
-| `getProductForOwner`    | GET    | `safeErrors`, `requireOwner` | One product **including cost** (used only by `/dev/auth`) |
-| `listProductsForOwner`  | GET    | `safeErrors`, `requireOwner` | Active products, **never cost**                           |
-| `createProductForOwner` | POST   | `safeErrors`, `requireOwner` | Create product; returns it **without cost**               |
-| `getDatabaseHealth`     | GET    | `safeErrors`                 | Dev-only status word                                      |
+| Function                 | Method | Middleware                   | Purpose                                                   |
+| ------------------------ | ------ | ---------------------------- | --------------------------------------------------------- |
+| `login`                  | POST   | `safeErrors`                 | Verify credentials, set session cookie                    |
+| `logout`                 | POST   | `safeErrors`                 | Delete session, clear cookie                              |
+| `signOutEverywhere`      | POST   | `safeErrors` + valid session | Delete all of the user's sessions, clear cookie           |
+| `getCurrentUser`         | GET    | `safeErrors`                 | Name and role only, or `null`                             |
+| `getProductForOwner`     | GET    | `safeErrors`, `requireOwner` | One product **including cost** (used only by `/dev/auth`) |
+| `listProductsForOwner`   | GET    | `safeErrors`, `requireOwner` | Active products, **never cost**                           |
+| `createProductForOwner`  | POST   | `safeErrors`, `requireOwner` | Create product; returns it **without cost**               |
+| `getProductForEditing`   | GET    | `safeErrors`, `requireOwner` | One product for the edit form, **without cost**           |
+| `updateProductForOwner`  | POST   | `safeErrors`, `requireOwner` | Edit allowed fields; returns it **without cost**          |
+| `archiveProductForOwner` | POST   | `safeErrors`, `requireOwner` | Set `active: false` (no delete exists)                    |
+| `restoreProductForOwner` | POST   | `safeErrors`, `requireOwner` | Set `active: true`                                        |
+| `getDatabaseHealth`      | GET    | `safeErrors`                 | Dev-only status word                                      |
 
 ## Authentication flow
 
@@ -153,6 +158,16 @@ Zod strict parse (normalizes SKU/barcode, rejects unknown/stock fields) → `pro
 → `verifyProductIndexes` (fail closed) → Mongoose `create` (schema validation; unique indexes
 decide duplicates, including concurrent ones) → cost-free `PublicProduct` returned.
 
+## Data flow: editing and archiving a product
+
+Edit form (`/owner/products/$productId/edit`, loaded with `getProductForEditing`, no cost) →
+`updateProductForOwner` (POST; CSRF; `safeErrors` → `requireOwner`) →
+`updateProduct(id, update)`: id check → Zod strict parse (only name, category, description,
+price, minimum, cost/`null`, image URL, threshold) → `productPricingError` on the combined values
+→ `save()` with optimistic concurrency (overlapping saves fail with "changed at the same time").
+Archive/Restore → `archiveProductForOwner`/`restoreProductForOwner` → `setProductActive`.
+The list's default filter `{ active: true }` lives in `listProducts`.
+
 ## Router data after mutations
 
 Convention (2026-10-28): **after any server mutation, invalidate affected router data before or
@@ -163,6 +178,9 @@ during navigation; owner pages use blocking reload so they never render stale da
   old data first and reloads in the background.
 - `/owner/products` sets `staleReloadMode: "blocking"` on its loader, so returning to it waits
   for fresh data (its pending state shows after 200 ms).
+- The edit page (blocking loader) calls `router.invalidate()` after a save, then navigates to the
+  list; archive/restore on the list call `router.invalidate()` and finish only once the fresh
+  list has loaded (VERIFIED 2026-10-31, E2E).
 - Current gap (VERIFIED 2026-10-28): `/owner/products/new` awaits `createProductForOwner` and
   then calls `navigate({ to: "/owner/products" })` without `router.invalidate()`; the list is
   fresh only because of the blocking loader. New owner pages need both.

@@ -122,11 +122,15 @@ the TTL index when the session expires (at most 7 days after login).
 - `requireOwner` (in `src/lib/auth.ts`) must be on every sensitive server function, **after**
   `safeErrors`: `.middleware([safeErrors, requireOwner])`. It throws "Not signed in." /
   "Not allowed.".
-- Currently protected: `getProductForOwner`, `listProductsForOwner`, `createProductForOwner`.
+- Currently protected: `getProductForOwner`, `listProductsForOwner`, `createProductForOwner`,
+  `getProductForEditing`, `updateProductForOwner`, `archiveProductForOwner`,
+  `restoreProductForOwner` (unit- and E2E-tested, mutation-checked 2026-10-31).
   `signOutEverywhere` needs any valid session (not owner-only) and acts only on that user.
 - Product **cost** is owner-only: `select: false` in the schema; public mappers build results
   field by field; only `getProductForOwner` returns cost. The `/owner/products` pages never
-  request or show cost; create responses never contain it (E2E-checked with a distinctive value).
+  request or show cost; create and edit responses never contain it, and the edit form never loads
+  it (E2E-checked with distinctive values). Products are archived, never deleted (no delete
+  server function exists; unit-tested).
 
 ## CSRF and request safety
 
@@ -134,7 +138,9 @@ the TTL index when the session expires (at most 7 days after login).
   (`handlerType === "serverFn"`): requests must be same-origin by `Sec-Fetch-Site`, `Origin`,
   or `Referer`; requests with none of these are rejected (403). Never set
   `allowRequestsWithoutOriginCheck`.
-- State-changing server functions use `POST` (`login`, `logout`, `createProductForOwner`).
+- State-changing server functions use `POST` (`login`, `logout`, `signOutEverywhere`,
+  `createProductForOwner`, `updateProductForOwner`, `archiveProductForOwner`,
+  `restoreProductForOwner`).
 - Forms use `method="post"` and keep their submit button disabled until React hydrates, so a
   native submit can never put values (e.g. passwords) into a URL.
 - `/login?redirect=` accepts **only** `/owner/products`; anything else is dropped (no open redirect).
@@ -218,7 +224,10 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
 - SKU: trim → upper-case → `^[A-Z0-9._-]{1,64}$`. Barcode: trim → upper-case → `^[A-Z0-9]{4,64}$`.
   Invalid characters are rejected, never stripped (different codes are never merged).
 - Pricing fields can only change through document `save()`; query-style updates touching
-  `price`/`minimumSellingPrice`/`cost` throw. Concurrent edits use optimistic concurrency.
+  `price`/`minimumSellingPrice`/`cost` throw. Concurrent edits use optimistic concurrency
+  (overlapping saves are refused); an edit form opened before another save is not detected (the
+  later save wins). Edits cannot change SKU, variants, stock, `active` or ids (rejected as unknown
+  keys).
 
 ## Database indexes and uniqueness
 

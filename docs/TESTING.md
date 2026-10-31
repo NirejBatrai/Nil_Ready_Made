@@ -1,6 +1,6 @@
 # Testing
 
-_Commands VERIFIED from `package.json` and by running them on 2026-10-23, 2026-10-24, 2026-10-25, 2026-10-27 and 2026-10-28._
+_Commands VERIFIED from `package.json` and by running them on 2026-10-23, 2026-10-24, 2026-10-25, 2026-10-27, 2026-10-28 and 2026-10-31._
 
 ## Prerequisites
 
@@ -30,20 +30,20 @@ How `.env` is kept out of tests (VERIFIED 2026-10-24):
 
 ## Commands
 
-| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                                                     |
-| ------------------------ | --------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (10-28, with Step 7a)                                                                                               |
-| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                                                             |
-| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (10-28, with Step 7a)                                                                 |
-| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (10-28, with Step 7a)                                                                          |
-| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 230 passed, 0 failed, 39 skipped (10-28, with Step 7a)                                                                     |
-| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                                                    |
-| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 37 passed, 0 failed, 1 skipped (10-28, with Step 7a); the former intermittent failure is fixed, see Known test limitations |
-| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                                                   |
-| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                                                      |
-| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                                                      |
-| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                                                          |
-| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                                                      |
+| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                                                      |
+| ------------------------ | --------------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (10-31, with product edit/archive)                                                                                   |
+| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                                                              |
+| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (10-31, with product edit/archive)                                                     |
+| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (10-31, with product edit/archive)                                                              |
+| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 250 passed, 0 failed, 46 skipped (10-31, with product edit/archive)                                                         |
+| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                                                     |
+| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 44 passed, 0 failed, 1 skipped (10-31, with product edit/archive); former intermittent failure fixed, see Known test limits |
+| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                                                    |
+| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                                                       |
+| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                                                       |
+| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                                                           |
+| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                                                       |
 
 Do not run the `.env`-loading commands unless the owner asks; prefer that the owner runs them.
 If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier …` are equivalent.
@@ -59,6 +59,7 @@ If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier
 | `products-ui.test.tsx`                                                                                                | Demo Products screen shows the owner-only lock for employees (UI only)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `db.test.ts`                                                                                                          | Connection module with fakes (reuse, cleanup, sanitized errors, health check)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `products.server.test.ts`                                                                                             | Product model/service on isolated DB: pricing, normalization, case-insensitive uniqueness (incl. raw writes), 10-way concurrent duplicates, fail-closed indexes, cost hiding, no index creation by app code                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `products-server-fns.test.ts`                                                                                         | Product server functions through TanStack Start's real server-side middleware chain (isolated DB; only the cookie value and `withDatabase` are replaced): every function refuses without a valid owner session, edit validation and server-controlled fields, concurrent edits, archive/restore and the active-only list filter, no delete function                                                                                                                                                                                                                                                               |
 | `setup-indexes.test.ts`                                                                                               | Runs `scripts/setup-indexes.ts` under Bun on isolated DBs: creates, idempotent, refuses on conflicts/unnormalized data without changing it, stops on index-definition conflicts                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `auth.test.ts`                                                                                                        | Passwords, login, attempt limits (simultaneous attempts, per-address/email rotation, IPv6 /64, database-down and hashing-busy un-counting, per-account limit incl. emails without an account and address rotation, no shared bucket without an address), hashing concurrency bound, sessions/expiry, session revocation and login hygiene (revoke all, sign out everywhere, old session deleted at login, 5-session cap, `lastSeenAt` throttling with a write count, User-Agent truncation, legacy sessions without the new fields, no logging), owner authorization, single owner, cookie options, config checks |
 | `client-address.test.ts`                                                                                              | Login client address: socket address off Workers (spoofed `CF-Connecting-IP` ignored), `CF-Connecting-IP` only on Workers, non-IP values give no address, IP validation, Workers detection by user agent (simulated; not run on workerd)                                                                                                                                                                                                                                                                                                                                                                          |
@@ -79,7 +80,9 @@ If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier
    `X-Real-IP` on a replayed login are ignored),
    `/login` UI, `/owner/products` (guards, no cost, loading/empty/error states),
    "Sign out everywhere" (a second browser context is signed out too; IP/User-Agent/`lastSeenAt` stored), `/owner/products/new` (creation, no stale list rendered afterwards, validation, duplicates, 5-way concurrent replays,
-   server-controlled fields rejected), demo unchanged, leak scan of every response, security
+   server-controlled fields rejected), edit and archive (edit page redirect, prefilled form
+   without cost, new values shown with no stale render, validation, archive confirmation and
+   cancel, archived view and restore, session/CSRF/field checks on the endpoints), demo unchanged, leak scan of every response, security
    headers on pages, 404s, redirects, signed-in owner pages, server functions, CSRF 403s and
    database-down pages (exact values; no HSTS over http; `favicon.ico` bypasses the app), and a production build
    of the copy (Nitro `node-server`) with a browser-bundle scan; the built server is started with
@@ -109,7 +112,10 @@ static-file route rule in `nitro.config.ts` (removed: the unit test failed with
 sign-out-everywhere without revocation, the presented session kept at login, no session cap,
 `lastSeenAt` written on every request, User-Agent not truncated, the legacy-session guard removed
 (unit tests failed), the button wired to a plain logout and the CSRF middleware removed (E2E
-failed: other device still signed in; built server answered 200 instead of 403).
+failed: other device still signed in; built server answered 200 instead of 403). On 2026-10-31
+(product edit/archive), each restored byte-identical: `requireOwner` removed from each of the
+five list/edit/archive/restore functions (unit tests failed), from `updateProductForOwner` (E2E
+endpoint test failed), and the `{ active: true }` list filter removed (unit and E2E failed).
 
 ## Regenerating `src/routeTree.gen.ts` without loading `.env`
 

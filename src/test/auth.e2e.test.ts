@@ -891,6 +891,242 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       });
     });
 
+    // ---- /owner/products: edit, archive, restore (real-owner-only; there is no delete) ----
+    describe("/owner/products edit and archive", () => {
+      const SECRET_COST = 3333; // distinctive, so any leak of the cost value is detectable
+      let robeId = "";
+      let scarfId = "";
+
+      const row = (name: string) =>
+        loginPage.locator('[data-testid="product-row"]', { hasText: name });
+      const stored = (id: string) => {
+        if (!conn) throw new Error("no test db");
+        return productModel(conn).findById(id).select("+cost").lean();
+      };
+      /** Records, from now on, whether any element matching `selector` ever renders `text`. */
+      const watchFor = (selector: string, text: string) =>
+        loginPage.evaluate(
+          ([sel, t]) => {
+            const w = window as Window & { __seen?: { armed: boolean; shown: boolean } };
+            const state = { armed: false, shown: false };
+            w.__seen = state;
+            new MutationObserver(() => {
+              if (
+                state.armed &&
+                [...document.querySelectorAll(sel)].some((el) => el.textContent?.trim() === t)
+              )
+                state.shown = true;
+            }).observe(document.body, { subtree: true, childList: true, characterData: true });
+          },
+          [selector, text] as const,
+        );
+      const arm = () =>
+        loginPage.evaluate(() => {
+          const w = window as Window & { __seen?: { armed: boolean; shown: boolean } };
+          if (w.__seen) w.__seen.armed = true;
+        });
+      const seen = () =>
+        loginPage.evaluate(() => {
+          const w = window as Window & { __seen?: { armed: boolean; shown: boolean } };
+          return w.__seen;
+        });
+
+      beforeAll(async () => {
+        if (!conn) throw new Error("no test db");
+        const products = createProductService(conn);
+        const robe = await products.createProduct({
+          name: "E2E Robe",
+          sku: "LX-E2E-ROBE",
+          category: "accessories",
+          price: 1500,
+          minimumSellingPrice: 1000,
+          cost: SECRET_COST,
+          lowStockThreshold: 1,
+          variants: [{ sku: "LX-E2E-ROBE" }],
+        });
+        const scarf = await products.createProduct({
+          name: "E2E Scarf",
+          sku: "LX-E2E-SCARF",
+          category: "accessories",
+          price: 690,
+          minimumSellingPrice: 490,
+          lowStockThreshold: 1,
+          variants: [{ sku: "LX-E2E-SCARF" }],
+        });
+        if (!robe.ok || !scarf.ok) throw new Error("test product setup failed");
+        robeId = robe.data.id;
+        scarfId = scarf.data.id;
+      });
+
+      it("signed out: the edit page redirects to sign-in", async () => {
+        const res = await fetch(`${base}/owner/products/${robeId}/edit`, { redirect: "manual" });
+        expect(res.status).toBeGreaterThanOrEqual(300);
+        expect(res.status).toBeLessThan(400);
+        expect(res.headers.get("location")).toMatch(/\/login\?redirect=%2Fowner%2Fproducts$/);
+        expectSecured(res.headers, "/owner/products/$id/edit redirect");
+      });
+
+      it("edit: prefilled without cost; the list shows the new values immediately, never the old ones", async () => {
+        await loginPage.goto(`${base}/login?redirect=%2Fowner%2Fproducts`, {
+          waitUntil: "networkidle",
+        });
+        await submitLogin(EMAIL, PASSWORD);
+        await loginPage.waitForURL(`${base}/owner/products`);
+        await row("E2E Robe").waitFor();
+        await watchFor('[data-testid="product-row"] td:first-child', "E2E Robe");
+        const firstResponse = responses.length;
+        await row("E2E Robe").getByTestId("product-edit").click();
+        await loginPage.waitForURL(`${base}/owner/products/${robeId}/edit`);
+        await loginPage.waitForSelector('[data-testid="ep-submit"]:not([disabled])');
+        expect(await loginPage.getByTestId("ep-name").inputValue()).toBe("E2E Robe");
+        expect(await loginPage.getByTestId("ep-sku").inputValue()).toBe("LX-E2E-ROBE");
+        expect(await loginPage.getByTestId("ep-sku").isDisabled()).toBe(true);
+        expect(await loginPage.getByTestId("ep-price").inputValue()).toBe("1500");
+        expect(await loginPage.getByTestId("ep-minimum").inputValue()).toBe("1000");
+        expect(await loginPage.getByTestId("ep-cost").inputValue()).toBe("");
+        expect(await loginPage.content()).not.toContain(String(SECRET_COST));
+        const ssr = await html(`/owner/products/${robeId}/edit`, (await sessionCookie())?.value);
+        expect(ssr).toMatch(/<form[^>]*method="post"/);
+        expect(ssr.match(/<button[^>]*data-testid="ep-submit"[^>]*>/)?.[0]).toMatch(
+          /\sdisabled=""/,
+        );
+        expect(ssr).not.toContain(String(SECRET_COST));
+
+        await loginPage.getByTestId("ep-name").fill("E2E Kimono");
+        await loginPage.getByTestId("ep-category").selectOption("dresses");
+        await loginPage.getByTestId("ep-price").fill("1800");
+        await loginPage.getByTestId("ep-minimum").fill("1200");
+        await arm();
+        await loginPage.getByTestId("ep-submit").click();
+        await loginPage.waitForURL(`${base}/owner/products`);
+        await row("E2E Kimono").waitFor({ timeout: 5000 });
+        expect(await seen()).toEqual({ armed: true, shown: false });
+        expect((await row("E2E Kimono").locator("td").allTextContents()).slice(0, 5)).toEqual([
+          "E2E Kimono",
+          "LX-E2E-ROBE",
+          "Dresses",
+          "฿1,800",
+          "฿1,200",
+        ]);
+        // Whole baht are stored as integers; an empty cost field kept the stored cost.
+        expect(await stored(robeId)).toMatchObject({
+          name: "E2E Kimono",
+          category: "dresses",
+          price: 1800,
+          minimumSellingPrice: 1200,
+          cost: SECRET_COST,
+        });
+        for (const body of responses.slice(firstResponse)) {
+          expect(body).not.toContain(String(SECRET_COST));
+          expect(body).not.toContain('"cost"');
+        }
+      });
+
+      it("edit: invalid values show the server's message and save nothing", async () => {
+        const before = await stored(robeId);
+        await loginPage.goto(`${base}/owner/products/${robeId}/edit`, { waitUntil: "networkidle" });
+        await loginPage.waitForSelector('[data-testid="ep-submit"]:not([disabled])');
+        await loginPage.getByTestId("ep-minimum").fill("5000");
+        await loginPage.getByTestId("ep-submit").click();
+        await loginPage.getByTestId("ep-error").waitFor();
+        expect(await loginPage.getByTestId("ep-error").textContent()).toBe(
+          "Minimum selling price cannot be higher than the selling price.",
+        );
+        await loginPage.getByTestId("ep-minimum").fill("1200");
+        await loginPage.getByTestId("ep-price").fill("99.5");
+        await loginPage.getByTestId("ep-submit").click();
+        await loginPage.waitForFunction(() =>
+          document.querySelector('[data-testid="ep-error"]')?.textContent?.includes("whole number"),
+        );
+        expect(await stored(robeId)).toEqual(before);
+      });
+
+      it("archive asks for confirmation; Cancel keeps the product, Archive removes it from the active list", async () => {
+        await loginPage.goto(`${base}/owner/products`, { waitUntil: "networkidle" });
+        await loginPage.waitForSelector('[data-testid="product-archive"]:not([disabled])');
+        await row("E2E Scarf").getByTestId("product-archive").click();
+        await loginPage.getByTestId("archive-dialog").waitFor();
+        expect(await loginPage.getByTestId("archive-dialog").textContent()).toContain(
+          "Archive E2E Scarf?",
+        );
+        await loginPage.getByTestId("archive-cancel").click();
+        await loginPage.getByTestId("archive-dialog").waitFor({ state: "detached" });
+        expect((await stored(scarfId))?.active).toBe(true);
+        expect(await row("E2E Scarf").count()).toBe(1);
+
+        await row("E2E Scarf").getByTestId("product-archive").click();
+        await loginPage.getByTestId("archive-confirm").click();
+        await loginPage.getByTestId("archive-dialog").waitFor({ state: "detached" });
+        // The dialog closes only after the fresh list has loaded: the row is already gone.
+        expect(await row("E2E Scarf").count()).toBe(0);
+        expect(await stored(scarfId)).toMatchObject({ active: false, name: "E2E Scarf" });
+        await loginPage.reload({ waitUntil: "networkidle" });
+        await loginPage.waitForSelector('[data-testid="products-table"]');
+        expect(await row("E2E Scarf").count()).toBe(0);
+        expect(await row("E2E Kimono").count()).toBe(1);
+      });
+
+      it("archived products are viewable and can be restored to the active list", async () => {
+        await loginPage.getByTestId("view-archived").click();
+        await loginPage.waitForURL(`${base}/owner/products?view=archived`);
+        await loginPage.waitForSelector('[data-testid="products-table"][data-view="archived"]');
+        expect(
+          await loginPage.locator('[data-testid="product-row"] td:first-child').allTextContents(),
+        ).toEqual(["E2E Scarf"]);
+        expect((await row("E2E Scarf").locator("td").allTextContents())[6]).toBe("Archived");
+        await loginPage.waitForSelector('[data-testid="product-restore"]:not([disabled])');
+        await row("E2E Scarf").getByTestId("product-restore").click();
+        await loginPage.getByTestId("products-empty").waitFor();
+        expect(await loginPage.getByTestId("products-empty").textContent()).toBe(
+          "No archived products.",
+        );
+        expect((await stored(scarfId))?.active).toBe(true);
+        await loginPage.getByTestId("view-active").click();
+        await loginPage.waitForURL(`${base}/owner/products`);
+        await loginPage.waitForSelector('[data-testid="products-table"][data-view="active"]');
+        expect(await row("E2E Scarf").count()).toBe(1);
+      });
+
+      it("edit and archive endpoints check the real session, the CSRF origin and the fields", async () => {
+        const update = requests
+          .filter((r) => r.method === "POST" && r.body?.includes("E2E Kimono"))
+          .at(-1);
+        const archive = requests
+          .filter((r) => r.method === "POST" && r.body?.includes(scarfId))
+          .at(0);
+        if (!update?.body || !archive) throw new Error("no captured edit/archive request");
+        const token = (await sessionCookie())?.value ?? "";
+        const hijack = { ...update, body: update.body.replace("E2E Kimono", "E2E Hijacked") };
+        for (const req of [hijack, archive]) {
+          expect((await replay(req, { origin: "same" })).text).toContain("Not signed in.");
+          const forged = await replay(req, { origin: "same", cookie: "A".repeat(43) });
+          expect(forged.text).toContain("Not signed in.");
+          expect((await replay(req, { origin: "cross", cookie: token })).status).toBe(403);
+        }
+        expect(await stored(robeId)).toMatchObject({ name: "E2E Kimono" });
+        expect((await stored(scarfId))?.active).toBe(true);
+        // Server-controlled fields in the update are rejected, even for the signed-in owner.
+        for (const [from, to] of [
+          ['"lowStockThreshold"', '"stock"'],
+          ['"description"', '"active"'],
+          ['"name"', '"sku"'],
+        ] as const) {
+          const body = update.body.replace(from, to);
+          expect(body).toContain(to);
+          const r = await replay({ ...update, body }, { origin: "same", cookie: token });
+          expect(r.text).toMatch(/Unrecognized key/);
+        }
+        expect(await stored(robeId)).toMatchObject({ name: "E2E Kimono", active: true });
+      });
+
+      it("ends signed out", async () => {
+        await loginPage.goto(`${base}/login`, { waitUntil: "networkidle" });
+        await loginPage.getByTestId("logout-button").click();
+        await loginPage.waitForSelector('[data-testid="login-form"]');
+        expect(await sessionCookie()).toBeUndefined();
+      });
+    });
+
     it("sign out everywhere ends this browser's session and the owner's session on another device", async () => {
       if (!browser || !conn) throw new Error("no browser or test db");
       const sessions = sessionModel(conn);
