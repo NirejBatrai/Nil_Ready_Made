@@ -16,11 +16,7 @@ import mongoose, { type Connection } from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { runWithStartContext } from "@tanstack/start-storage-context";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createAuthService,
-  createLoginLimiter,
-  ensureAuthIndexes,
-} from "@/server/auth/auth.server";
+import { createAuthService, ensureAuthIndexes } from "@/server/auth/auth.server";
 import { connectOptions, DatabaseUnavailableError } from "@/server/db.server";
 import { userModel } from "@/server/models/user.server";
 import { ensureProductIndexes, productModel } from "@/server/models/product.server";
@@ -145,7 +141,7 @@ beforeAll(async () => {
   await conn.openUri(uri, { ...connectOptions(false), dbName: "luxe_product_fns_test" });
   await ensureAuthIndexes(conn);
   await ensureProductIndexes(conn);
-  const auth = createAuthService(conn, { limiter: createLoginLimiter() });
+  const auth = createAuthService(conn);
   const owner = await auth.createFirstOwner({ email: EMAIL, name: "Fn Owner", password: PASSWORD });
   if (!owner.ok) throw new Error(owner.error);
   const login = await auth.login({ email: EMAIL, password: PASSWORD }, "203.0.113.7");
@@ -199,7 +195,7 @@ describe("owner-only: every product server function refuses without a valid owne
 
   it("a signed-out session (after logout) is refused too", async () => {
     const p = await created();
-    const auth = createAuthService(conn, { limiter: createLoginLimiter() });
+    const auth = createAuthService(conn);
     const login = await auth.login({ email: EMAIL, password: PASSWORD }, "203.0.113.8");
     if (!login.ok) throw new Error(login.error);
     await auth.logout(login.token);

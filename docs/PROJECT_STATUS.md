@@ -1,6 +1,6 @@
 # Project status
 
-_Last verified: **2026-10-31**, by inspecting the repository and running the checks below._
+_Last verified: **2026-10-31** (Step 5c), by inspecting the repository and running the checks below._
 Update this file whenever the state changes. This file describes work by **step name**, not by
 commit hash; see `git log` for commit hashes (and [CHANGELOG.md](CHANGELOG.md) for which commit
 holds which finished step).
@@ -21,14 +21,14 @@ Luxe Retail OS is a mobile-first POS / back-office app for a small shop in Thail
 
 ## Git state (VERIFIED 2026-10-29, local repository only)
 
-| Item              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Current branch    | `feature/mongodb-foundation`. Push status is not tracked in the docs; check `git status` / `git log origin/feature/mongodb-foundation..`                                                                                                                                                                                                                                                                                                                                     |
-| Committed work    | All of the following is committed on this branch (not merged into `main`): connection foundation, product model/service, Backend Steps 2a–3b, agent handbook and test-isolation hardening, login hardening, security headers, Step 1 (docs/tooling hygiene), Step 2 (login client address + per-account limit), Step 3 (stale product list fix), Step 5a (runtime decision record), Step 5b (build target Node server), Step 7a (session hardening), product edit/archive UI |
-| Uncommitted work  | None expected; check `git status`                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Commit hashes     | See `git log --oneline main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `main`            | Not changed by the backend work; compare with `git log main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                                                                                     |
-| Local backup refs | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                                                                                                                                                                                       |
+| Item              | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current branch    | `feature/mongodb-foundation`. Push status is not tracked in the docs; check `git status` / `git log origin/feature/mongodb-foundation..`                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Committed work    | All of the following is committed on this branch (not merged into `main`): connection foundation, product model/service, Backend Steps 2a–3b, agent handbook and test-isolation hardening, login hardening, security headers, Step 1 (docs/tooling hygiene), Step 2 (login client address + per-account limit), Step 3 (stale product list fix), Step 5a (runtime decision record), Step 5b (build target Node server), Step 7a (session hardening), product edit/archive UI, Step 5c (Vercel variant: client address, MongoDB login limits, build preset) |
+| Uncommitted work  | None expected; check `git status`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Commit hashes     | See `git log --oneline main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `main`            | Not changed by the backend work; compare with `git log main..feature/mongodb-foundation`                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Local backup refs | `refs/original/refs/heads/master`, `refs/original-2/refs/heads/main`: pre-rewrite history with an old author identity. **Local only — never push, modify or delete them** without the owner's decision                                                                                                                                                                                                                                                                                                                                                     |
 
 Pushing or merging the branch requires the owner's approval. The throwaway Step 4 branch
 `spike/workers-runtime` and its worktree `../Nil_Ready_made-spike-workers` were never merged and
@@ -49,7 +49,7 @@ have been removed by the owner.
 
 Details: [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md).
 
-## Latest check results (VERIFIED 2026-10-31, with the product edit/archive UI, unless dated)
+## Latest check results (VERIFIED 2026-10-31, with Step 5c, unless dated)
 
 | Command                                                   | Result                                                                                                                                                                                                                   |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -57,7 +57,7 @@ Details: [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [CHANGE
 | `bun run typecheck` (`tsc --noEmit -p .`)                 | exit 0                                                                                                                                                                                                                   |
 | `bun run lint`                                            | 0 errors, 11 warnings (pre-existing `react-refresh/only-export-components`)                                                                                                                                              |
 | `bun run format:check` (`prettier --check .`)             | exit 0, all files formatted                                                                                                                                                                                              |
-| `bun run test`                                            | 15 files passed, 2 skipped; **250 tests passed, 0 failed, 46 skipped** (opt-in suites)                                                                                                                                   |
+| `bun run test`                                            | 17 files passed, 2 skipped; **268 tests passed, 0 failed, 46 skipped** (opt-in suites)                                                                                                                                   |
 | `bun run test:e2e`                                        | **44 passed, 0 failed, 1 skipped** (Chrome-not-found placeholder)                                                                                                                                                        |
 | Production smoke test (Step 5b)                           | Built with `node-server` in an isolated copy, started with `node .output/server/index.mjs` against a throwaway local `mongod`: login, empty list, create, row after reload; headers on pages, `favicon.ico`, `/assets/*` |
 | Product-create E2E chain, 15× in a loop (Step 3)          | **15/15 passed** with the fix; with `staleReloadMode` removed the test failed (`shown: true`). See [CHANGELOG.md](CHANGELOG.md)                                                                                          |
@@ -84,7 +84,7 @@ builds production output in an isolated copy instead. See [TESTING.md](TESTING.m
 
 ## Next approved action
 
-None. The product edit/archive UI is committed; Step 7a (session hardening) is committed; Step 7b (idle timeout / PIN lock) is planned with the employee design, not approved. Step 4 (Workers runtime test) is done:
+None. Step 5c (Vercel variant, decision 0003) is committed but **not deployed**; deploying is the owner's checklist [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md). The product edit/archive UI is committed; Step 7a (session hardening) is committed; Step 7b (idle timeout / PIN lock) is planned with the employee design, not approved. Step 4 (Workers runtime test) is done:
 its result is decision 0001; its throwaway branch and worktree have been removed. Merging the branch needs the owner's approval. Backend Step 3c has **not** been approved. Wait
 for the owner's explicit approval and scope before implementing anything new. Candidate next
 steps are listed (unapproved) in [ROADMAP.md](ROADMAP.md).
@@ -108,8 +108,13 @@ steps are listed (unapproved) in [ROADMAP.md](ROADMAP.md).
   invalidation rule in [ARCHITECTURE.md](ARCHITECTURE.md#router-data-after-mutations).
 - Demo screens still use simulated data and roles; the real product pages are separate.
 - No audit log, inventory-movement history, employee accounts or password reset.
-- Login attempt limits and the hashing bound are in-memory (reset on restart, per process); a
-  flood that fills the hashing bound makes logins answer "Too many attempts" until it stops.
+- Login attempt limits are stored in MongoDB (shared, survive restarts; fail closed). The
+  hashing bound is still in memory per process; a flood that fills it makes logins answer "Too
+  many attempts" until it stops.
+- Vercel (decision 0003) is for personal testing only and has **not been deployed**; Atlas would
+  need `0.0.0.0/0`. Header routing, doubled headers, HSTS scheme and the
+  `x-vercel-forwarded-for` overwrite are unverified until the owner's smoke test
+  ([DEPLOY-VERCEL.md](DEPLOY-VERCEL.md)).
 - The production cookie (`__Host-luxe_session`, `Secure`) requires HTTPS.
 - Security headers: no full Content-Security-Policy yet; HSTS off until the owner sets
   `SECURITY_HSTS_MAX_AGE` after verifying HTTPS.

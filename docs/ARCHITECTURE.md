@@ -26,6 +26,24 @@ and `HOST`. **Without `HOST` it listens on all interfaces** (VERIFIED), so produ
 `nitro.config.ts` was needed only for the former Workers target (historical; harmless; candidate
 for removal), as is the Workers detection in `db.server.ts` and `client-address.server.ts`.
 
+Vercel build (Step 5c, decision 0003, personal testing only; VERIFIED 2026-10-31 by a local
+build of an isolated copy, NOT on Vercel): the preset comes from `nitroPreset()` in
+`src/server/build-preset.server.ts`. `NITRO_PRESET=vercel`, or `VERCEL=1` (set by Vercel while
+building), selects `vercel`. Any other `NITRO_PRESET` value fails the build, and the default is
+`node-server`. The Vercel build writes `.vercel/output`:
+
+- `config.json`, whose routes are, in order:
+  1. the baseline security headers for `/(.*)` with `continue: true`, from
+     `nitroSettings("vercel")` in `nitro.config.ts`;
+  2. Nitro's `/assets/(.*)` immutable cache header;
+  3. `handle: filesystem`;
+  4. everything else → `/__server`.
+- `static/`;
+- `functions/__server.func`, the Node.js 24 function.
+
+Vercel stops at the first matching route without `continue`, which is why the baseline is
+emitted first and not as a route rule there (see decision 0003).
+
 ## Directory map
 
 ```
@@ -55,8 +73,9 @@ src/
     health.server.ts      Health check core
     security-headers.server.ts Baseline security headers, no-store, opt-in HSTS
     products.server.ts    Product service (validation, create, reads)
-    models/               Mongoose models: product, user, session
-    auth/                 password (scrypt), auth core, cookie options, session-context (HTTP bridge)
+    models/               Mongoose models: product, user, session, login-attempt
+    auth/                 password (scrypt), auth core, login limiter (MongoDB), client address, cookie options, session-context (HTTP bridge)
+    build-preset.server.ts Nitro preset for the build (node-server default, vercel for decision 0003)
   types/domain.ts         Shared domain types
   test/                   Vitest tests (see TESTING.md)
 scripts/                  Local-only CLI scripts run with Bun by the owner
@@ -140,11 +159,12 @@ Details and parameters: [SECURITY.md](SECURITY.md).
 
 ## Database models (VERIFIED)
 
-| Collection | Model file                 | Key points                                                                                                                                                                                                     |
-| ---------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `users`    | `models/user.server.ts`    | `role` enum is `owner` only; `passwordHash` `select:false`; unique email; `single_owner` partial unique index                                                                                                  |
-| `sessions` | `models/session.server.ts` | `_id` = SHA-256 of token; `expiresAt` with TTL cleanup index; `userId` index; optional `createdIp`, `userAgent` (≤ 256), `lastSeenAt`; at most 5 per user                                                      |
-| `products` | `models/product.server.ts` | Whole-baht money; per-product `minimumSellingPrice`; `cost` `select:false`; embedded variants (`sku`, `barcode`, `openingStock`, `stock`); optimistic concurrency; query updates touching pricing are rejected |
+| Collection       | Model file                       | Key points                                                                                                                                                                                                     |
+| ---------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `users`          | `models/user.server.ts`          | `role` enum is `owner` only; `passwordHash` `select:false`; unique email; `single_owner` partial unique index                                                                                                  |
+| `login_attempts` | `models/login-attempt.server.ts` | `_id` = `<kind>\|<key>`; `entries` (attempt id + time) inside the window; `expiresAt` with TTL index `login_attempt_expiry`; written only by atomic updates in `login-limiter.server.ts`                       |
+| `sessions`       | `models/session.server.ts`       | `_id` = SHA-256 of token; `expiresAt` with TTL cleanup index; `userId` index; optional `createdIp`, `userAgent` (≤ 256), `lastSeenAt`; at most 5 per user                                                      |
+| `products`       | `models/product.server.ts`       | Whole-baht money; per-product `minimumSellingPrice`; `cost` `select:false`; embedded variants (`sku`, `barcode`, `openingStock`, `stock`); optimistic concurrency; query updates touching pricing are rejected |
 
 Product indexes (case-insensitive collation `{ locale: "en", strength: 2 }`, all unique):
 `product_sku_unique_ci`, `variant_sku_unique_ci`, `variant_barcode_unique_ci` (partial). They

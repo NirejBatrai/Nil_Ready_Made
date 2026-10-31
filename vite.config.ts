@@ -5,12 +5,14 @@
 //     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { nitroPreset } from "./src/server/build-preset.server";
 
 export default defineConfig({
   // Production runs as a Node.js server, not on Cloudflare Workers (the Lovable default).
   // See docs/decisions/0001-runtime-node-not-workers.md. Start the build with
-  // `node .output/server/index.mjs`.
-  nitro: { preset: "node-server" },
+  // `node .output/server/index.mjs`. A Vercel build (NITRO_PRESET=vercel, or VERCEL=1 set by
+  // Vercel) writes .vercel/output instead: personal testing only, decision 0003.
+  nitro: { preset: nitroPreset(process.env) },
   vite: {
     // Local development only: listen on this computer, not the local network. The Lovable
     // default is "::" (all interfaces), which would expose server functions to other devices.

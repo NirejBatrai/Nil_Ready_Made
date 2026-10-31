@@ -20,11 +20,13 @@ const COOKIE = sessionCookieName(PRODUCTION);
 export async function loginWithCookie(
   input: unknown,
 ): Promise<{ ok: true; user: Pick<AuthUser, "name" | "role"> } | { ok: false; error: string }> {
-  // CF-Connecting-IP on Cloudflare Workers only, else the socket address (getRequestIP() without
-  // options ignores X-Forwarded-For); undefined if neither is an IP address.
+  // x-vercel-forwarded-for on Vercel only, CF-Connecting-IP on Cloudflare Workers only, else the
+  // socket address (getRequestIP() without options ignores X-Forwarded-For); undefined if the
+  // chosen value is not an IP address.
   const ip = loginClientAddress({
     socketIp: getRequestIP(),
     cfConnectingIp: getRequestHeader("cf-connecting-ip"),
+    vercelForwardedFor: getRequestHeader("x-vercel-forwarded-for"),
   });
   // The old session cookie (if any) is ended after the new login; the User-Agent is stored on the
   // session (truncated) and never logged.

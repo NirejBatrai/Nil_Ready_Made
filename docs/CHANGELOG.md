@@ -4,6 +4,63 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-10-31 — Step 5c: Vercel variant for personal testing (not deployed)
+
+Decision: [0003](decisions/0003-vercel-for-personal-testing.md). Vercel Hobby is for personal,
+non-commercial testing only; Atlas would need `0.0.0.0/0`.
+
+- **Client address** (`client-address.server.ts`):
+  - On Vercel (runtime `VERCEL=1`, never request data): the first entry of
+    `x-vercel-forwarded-for`, validated as today. A missing or invalid first entry means no
+    address. Later entries and the socket are never used there.
+  - Off Vercel and off Workers: unchanged (socket only, every header ignored).
+  - Platform passed explicitly in tests (`"server" | "vercel" | "workers"`).
+- **Login limits in MongoDB** (`login-limiter.server.ts`, `models/login-attempt.server.ts`,
+  collection `login_attempts`): same three limits, thresholds, windows and messages.
+  - Each check-and-count is one atomic single-document update pipeline with upsert, and keeps a
+    sliding window.
+  - Undo by random attempt id, and `reset` on success.
+  - TTL index `login_attempt_expiry` on `expiresAt`, created by `ensureAuthIndexes`, so by
+    `db:setup-indexes` and `auth:create-owner`.
+  - **Fail closed**: limiter errors refuse login with "Database unavailable." and no password
+    check. Undo is best effort.
+  - The in-memory limiter, its 10 000-key cap and the module-level limiter instances are
+    removed. The hashing bound stays in memory.
+- **Build**:
+  - `nitroPreset()` (`build-preset.server.ts`): `node-server` by default; `vercel` via
+    `NITRO_PRESET=vercel` or Vercel's `VERCEL=1`; other presets fail the build.
+  - Checked by building an isolated copy (no `.env`) with `NITRO_PRESET=vercel`. The output was
+    `.vercel/output/{config.json, static/, functions/__server.func}` (Node.js 24 function). The
+    default build still writes `.output/server/index.mjs`.
+- **Headers verdict (Vercel output):**
+  - As Nitro first generated it, the route rules did **not** apply reliably.
+    - Its `config.json` had a header-only `/assets/(.*)` cache route, then a header-only
+      `/(.*)` baseline route, both without `continue: true`.
+    - Vercel's Build Output API documents that routing stops at a matched route unless
+      `continue` is true. So hashed assets would get only the cache header, and the baseline
+      catch-all would stop routing before the app function.
+  - Fixed in `nitro.config.ts` (`nitroSettings("vercel")`): the baseline is the first route for
+    `/(.*)` with `continue: true`, with no `/**` route rule on Vercel. The rebuilt output has
+    that order.
+  - Not verified on Vercel itself:
+    - doubled headers on pages;
+    - Nitro's assets route still serving files;
+    - the HSTS scheme.
+  - These are in the owner's smoke test.
+- **Docs**: decision 0003, owner checklist [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md), and updates to
+  SECURITY (Vercel IP trust, MongoDB limits and the fail-closed tradeoff, the Atlas `0.0.0.0/0`
+  risk), ARCHITECTURE, TESTING, PROJECT_STATUS and ROADMAP.
+- **Tests**:
+  - New `login-limiter.test.ts` (10 tests; TTL monitor at 1 s), `build-preset.test.ts` (4) and
+    Vercel cases in `client-address.test.ts`.
+  - Two `nitroSettings` tests in `security-headers.test.ts`.
+  - `auth.test.ts`: two new tests (fail closed with unreachable counters, one shared collection
+    keyed by kind) replace the two memory-cap tests. Its clock now starts at the real time.
+- **Mutation checks**: 13 protections removed one at a time; each was caught by a failing unit
+  test and restored byte-identical. They are listed in [TESTING.md](TESTING.md).
+- **Checks**: typecheck, lint (0 errors, 11 known warnings), format check, `bun run test` (268
+  passed, 46 skipped), `bun run test:e2e` (44 passed, 1 skipped).
+
 ## 2026-10-31 — Owner product edit and archive UI
 
 - Server functions in `src/lib/products.ts`, all `safeErrors` + `requireOwner`:

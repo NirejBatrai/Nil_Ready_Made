@@ -14,14 +14,36 @@
  * unenv polyfill file, and the slash then made that path invalid ("Not a directory").
  * Point exactly `punycode/` at the npm package that tr46 depends on. Only the former Workers
  * target needed this; it is harmless for the Node server (candidate for removal).
+ *
+ * Vercel build (decision 0003): Vercel serves static files itself and applies the `routes` of
+ * `.vercel/output/config.json`, where routing STOPS at the first matching route unless it has
+ * `continue: true` (Build Output API v3). Nitro writes route-rule headers without `continue`,
+ * after its own `/assets/(.*)` cache rule, so the baseline would miss hashed assets and its
+ * catch-all would stop routing before the app function. For Vercel the baseline is therefore
+ * emitted as the FIRST route, for every path, with `continue: true`, and not as a route rule.
  */
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "nitro/config";
+import type { NitroConfig } from "nitro/types";
+import { nitroPreset, type NitroPreset } from "./src/server/build-preset.server";
 import { BASELINE_SECURITY_HEADERS } from "./src/server/security-headers.server";
 
-export default defineConfig({
-  routeRules: { "/**": { headers: { ...BASELINE_SECURITY_HEADERS } } },
-  alias: {
+/** Exported for tests; the default export uses the preset this build is for. */
+export function nitroSettings(preset: NitroPreset): Omit<NitroConfig, "rootDir"> {
+  const alias = {
     "punycode/": fileURLToPath(new URL("./node_modules/punycode/punycode.js", import.meta.url)),
-  },
-});
+  };
+  if (preset === "vercel")
+    return {
+      alias,
+      vercel: {
+        config: {
+          version: 3 as const,
+          routes: [{ src: "/(.*)", headers: { ...BASELINE_SECURITY_HEADERS }, continue: true }],
+        },
+      },
+    };
+  return { routeRules: { "/**": { headers: { ...BASELINE_SECURITY_HEADERS } } }, alias };
+}
+
+export default defineConfig(nitroSettings(nitroPreset(process.env)));

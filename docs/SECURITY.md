@@ -13,23 +13,35 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
 - **Production target: a Node.js server** (decision
   [0001](decisions/0001-runtime-node-not-workers.md)). Statements about Cloudflare Workers below
   are **historical**: kept for the record, not a deployment target.
+- **Vercel (Hobby) is allowed for the owner's personal, non-commercial testing only** (decision
+  [0003](decisions/0003-vercel-for-personal-testing.md), checklist
+  [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md)). Not deployed by agents; nothing about it is verified on
+  a real deployment.
 
 ## Authentication
 
-| Item             | Implementation                                                                                                                                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Accounts         | One owner (`users.role` enum is `["owner"]`); DB index `single_owner` allows only one                                                                                                                                                            |
-| Owner creation   | **Local only**: `bun run auth:create-owner` (hidden password prompt; refuses if an owner exists). No public registration route or server function exists.                                                                                        |
-| Password hashing | Node `crypto.scrypt`, N=2^15, r=8, p=3, 16-byte salt, 64-byte key, `timingSafeEqual`; stored as `scrypt$N$r$p$salt$key`; out-of-bounds stored params rejected                                                                                    |
-| Password policy  | 10–128 characters (NFKC-normalized)                                                                                                                                                                                                              |
-| Login errors     | Always "Email or password is incorrect."; unknown emails are checked against a dummy hash (timing)                                                                                                                                               |
-| Attempt limit    | Three in-memory limits (reset on restart; one process), all per 15 minutes: **5 per email + address**, **20 per address across all emails** (stops email rotation) and **50 per email across all addresses** (stops address rotation). See below |
-| Hash concurrency | At most **2** scrypt derivations at once (≈64 MiB) and **8** waiting, per process; beyond that login answers "Too many attempts" without hashing                                                                                                 |
-| Inactive users   | Cannot log in; existing sessions stop working immediately                                                                                                                                                                                        |
+| Item             | Implementation                                                                                                                                                                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Accounts         | One owner (`users.role` enum is `["owner"]`); DB index `single_owner` allows only one                                                                                                                                                      |
+| Owner creation   | **Local only**: `bun run auth:create-owner` (hidden password prompt; refuses if an owner exists). No public registration route or server function exists.                                                                                  |
+| Password hashing | Node `crypto.scrypt`, N=2^15, r=8, p=3, 16-byte salt, 64-byte key, `timingSafeEqual`; stored as `scrypt$N$r$p$salt$key`; out-of-bounds stored params rejected                                                                              |
+| Password policy  | 10–128 characters (NFKC-normalized)                                                                                                                                                                                                        |
+| Login errors     | Always "Email or password is incorrect."; unknown emails are checked against a dummy hash (timing)                                                                                                                                         |
+| Attempt limit    | Three limits stored in **MongoDB** (`login_attempts`; survive restarts, shared by all instances), all per 15 minutes: **5 per email + address**, **20 per address across all emails** and **50 per email across all addresses**. See below |
+| Hash concurrency | At most **2** scrypt derivations at once (≈64 MiB) and **8** waiting, per process; beyond that login answers "Too many attempts" without hashing                                                                                           |
+| Inactive users   | Cannot log in; existing sessions stop working immediately                                                                                                                                                                                  |
 
-### Login attempt limits (`src/server/auth/auth.server.ts`, VERIFIED 2026-10-24, updated 2026-10-27)
+### Login attempt limits (`src/server/auth/auth.server.ts`, `login-limiter.server.ts`, VERIFIED 2026-10-24, updated 2026-10-27 and 2026-10-31)
 
-- **Address** (`src/server/auth/client-address.server.ts`, 2026-10-27):
+- **Address** (`src/server/auth/client-address.server.ts`, 2026-10-27; Vercel 2026-10-31):
+  - **On Vercel** (detected by the runtime environment variable `VERCEL=1`, which Vercel sets
+    for its functions; never by request data): only the **first entry** of
+    `x-vercel-forwarded-for`, which Vercel's edge sets to the visitor's address. That entry must
+    be a valid IP address, or there is no address; later entries are never consulted. The
+    socket address (Vercel's proxy, shared by everyone) is never used there. That Vercel's edge
+    overwrites a client-sent value is Vercel's documented behaviour, **NOT VERIFIED** on a
+    deployment (smoke test in [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md)). Unit-tested with a
+    simulated `VERCEL=1`.
   - _Historical (Workers target, decision 0001):_ **on Cloudflare Workers** (detected by
     `navigator.userAgent === "Cloudflare-Workers"`, a property of the runtime that requests
     cannot change): `CF-Connecting-IP`, which Cloudflare's edge sets and overwrites. Step 4
@@ -39,8 +51,9 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
   - **Everywhere else, including the production Node.js server** (Node.js, Bun, `vite dev`):
     the socket address from `getRequestIP()`
     (no options, so `X-Forwarded-For` is not read; srvx trusts no proxy by default). Every
-    header is ignored, including `CF-Connecting-IP`, `X-Forwarded-For` and `X-Real-IP`
-    (unit- and E2E-tested). There is **no setting** to trust proxy headers.
+    header is ignored, including `x-vercel-forwarded-for`, `CF-Connecting-IP`,
+    `X-Forwarded-For` and `X-Real-IP` (unit- and E2E-tested). There is **no setting** to trust
+    proxy headers.
   - A value that is not an IPv4/IPv6 address counts as **no address**. There is never a shared
     fallback key (the old `"unknown"` fallback is gone).
   - IPv6 is counted per **/64** (one user usually controls a whole /64); IPv4-mapped IPv6 counts
@@ -50,23 +63,46 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
   another (unit-tested).
 - **Per-email (account) limit, 50 per 15 minutes**: keyed on the normalized email (trimmed,
   lower-case), counted for emails with no account exactly as for real ones (same responses, so
-  it reveals nothing). Same limiter as the others, so memory is capped at 10 000 keys.
+  it reveals nothing). Same limiter as the others.
   **Tradeoff:** any per-account limit lets an attacker block that account. A fixed threshold
   well above the address limit was chosen over progressive backoff (simpler, same race-safe
   counting): one address adds at most 5 per email, so blocking the owner needs **at least 10
   different addresses** (IPv6: /64s) within 15 minutes, and the block ends 15 minutes after the
   attack stops. In return a botnet gets at most 50 password checks per 15 minutes on the owner
   account (before: unlimited across addresses).
-- **Counted before hashing, atomically**: all applicable limits are checked and the attempt is
-  counted in one synchronous step before any `await`, so simultaneous requests cannot all pass
-  (30 at once → exactly 5 password checks). If a later limit refuses, the earlier counts are
-  undone.
+- **Storage (2026-10-31)**: collection `login_attempts`, one document per limit key
+  (`address|…`, `email_address|…|…`, `account|…`) holding the attempts inside the window.
+  - **Shared and persistent**: the counts live in the database, so they survive restarts and hold
+    across all server instances (two limiter instances on one database are unit-tested).
+  - **Counted before hashing, atomically**: each limit is checked and counted in **one atomic
+    single-document update** (update pipeline with upsert): attempts older than the window are
+    dropped and this attempt is recorded only if fewer than the limit remain. Simultaneous
+    requests cannot all pass, on one instance or many (30 at once → exactly 5 password checks;
+    50 at once on a new key → exactly the limit).
+  - The limits are taken in order (address, email + address, account). If a later one refuses,
+    the earlier counts are undone, each by its own random attempt id, so a simultaneous attempt
+    is never removed by mistake. Between counting and undoing, a concurrent request may briefly
+    see the higher count and be refused (the safe direction).
+  - **TTL cleanup**: `expiresAt` = newest attempt + window; the TTL index
+    `login_attempt_expiry` (created by `db:setup-indexes`) deletes a document once all its
+    attempts have expired (MongoDB's monitor runs about once a minute). Expiry is also applied
+    inside every update, so limits stay correct before cleanup runs or without the index (then
+    documents are only never deleted).
+  - **Fail closed**: if the counters cannot be read or written, login is refused with the
+    generic "Database unavailable." and **no password is checked**. Undoing a count is best
+    effort: if it fails, the attempt stays counted.
+  - **Tradeoff**: an outage of the counters blocks every login, even with the right password.
+    Login needs the same database for the user and the session anyway, so this adds little.
+    Failing open would allow unlimited guessing exactly when the database is degraded.
+    Cost: 3–5 small extra writes per login.
+  - Keys contain the normalized email and the client address (personal data), kept only for the
+    window plus the TTL delay and never logged.
 - **Wrong password, unknown email, inactive account**: stays counted in all limits.
 - **Correct password**: clears the per-email + address count and does not count against the
   address or the account (failures by others stay counted, so signing in does not reset an
   attacker's count).
-- **No verdict** (database error, or hashing busy): un-counted in all limits, so an outage or
-  overload does not lock the owner out later. Hashing busy answers "Too many attempts. Try again
+- **No verdict** (user lookup or hashing fails after counting, or hashing busy): un-counted in
+  all limits, so an outage or overload does not lock the owner out later. Hashing busy answers "Too many attempts. Try again
   later."; a database error answers "Database unavailable.".
 - **Effect of an attack**: one address gets at most 20 password checks per 15 minutes in total
   and 5 per email; all addresses together get at most 50 per email. The owner signing in from a **different** address is unaffected; from the
@@ -264,9 +300,20 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
 
 ## Known security limitations (open)
 
-- In-memory login limits and hashing bound: reset on restart and are per process, so several
-  processes or instances each allow their own quota. A shared store is not built. One Node.js
-  process gives exactly the documented limits.
+- Login limits are shared in MongoDB (2026-10-31). The **hashing bound** (2 at once, 8 waiting)
+  is still in memory, per process or instance.
+- **Vercel test deployment (decision 0003), accepted risks:**
+  - **Atlas network access is `0.0.0.0/0`** (Vercel has no fixed outgoing IP), so the database
+    is protected only by its credentials and TLS. Hence: test data only, a dedicated user with
+    `readWrite` on the app database only, and a long random password used nowhere else. Rotate
+    or delete that user when testing ends.
+  - The Hobby plan is for personal, non-commercial use only.
+  - On a real Vercel deployment, these are NOT VERIFIED (smoke test in
+    [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md)):
+    - the Vercel routing of static-file headers;
+    - possible doubled headers on pages;
+    - the request URL scheme (HSTS);
+    - the `x-vercel-forwarded-for` overwrite.
 - **Required before any real deployment — trusted-proxy handling:** behind a reverse proxy, load
   balancer, Cloudflare proxy or Cloudflare Tunnel, the socket address is the proxy's, so all
   visitors share one address and the per-address limit (20 per 15 minutes) becomes a **global

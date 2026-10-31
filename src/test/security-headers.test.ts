@@ -4,7 +4,7 @@
  * and the nitro.config.ts static-file route rule staying in sync with the server constants.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import nitroConfig from "../../nitro.config";
+import nitroConfig, { nitroSettings } from "../../nitro.config";
 import {
   applySecurityHeaders,
   BASELINE_SECURITY_HEADERS,
@@ -233,5 +233,17 @@ describe("nitro.config.ts route rule (static files on the Node server)", () => {
     expect(headers).toEqual(BASELINE_SECURITY_HEADERS);
     expect(headers).toEqual(EXPECTED);
     expect(Object.keys(headers).join(" ")).not.toMatch(/cache-control|strict-transport-security/i);
+  });
+
+  it("the Node server build uses that route rule; the Vercel build does not", () => {
+    expect(nitroSettings("node-server").routeRules).toEqual(nitroConfig.routeRules);
+    expect(nitroSettings("node-server").vercel).toBeUndefined();
+    expect(nitroSettings("vercel").routeRules).toBeUndefined();
+  });
+
+  it("Vercel build: the baseline is the first route, for every path, and routing continues", () => {
+    // Vercel stops at the first matching route unless it has `continue: true`.
+    const routes = nitroSettings("vercel").vercel?.config?.routes ?? [];
+    expect(routes).toEqual([{ src: "/(.*)", headers: EXPECTED, continue: true }]);
   });
 });

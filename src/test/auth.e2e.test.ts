@@ -30,11 +30,7 @@ import mongoose, { type Connection } from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  createAuthService,
-  createLoginLimiter,
-  ensureAuthIndexes,
-} from "@/server/auth/auth.server";
+import { createAuthService, ensureAuthIndexes } from "@/server/auth/auth.server";
 import { connectOptions } from "@/server/db.server";
 import { sessionModel } from "@/server/models/session.server";
 import { ensureProductIndexes, productModel } from "@/server/models/product.server";
@@ -249,9 +245,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       await conn.openUri(uri, { ...connectOptions(false), dbName: "luxe_e2e" });
       await ensureAuthIndexes(conn);
       await ensureProductIndexes(conn);
-      const owner = await createAuthService(conn, {
-        limiter: createLoginLimiter(),
-      }).createFirstOwner({
+      const owner = await createAuthService(conn).createFirstOwner({
         email: EMAIL,
         name: "E2E Owner",
         password: PASSWORD,

@@ -7,9 +7,11 @@
  * - Every login failure returns the same message; unknown emails are checked against a dummy
  *   hash so timing does not reveal which emails exist.
  * - At most 5 failed attempts per email and address, 20 per address across all emails, and 50
- *   per email across all addresses, within 15 minutes (in memory, per process). An address is
- *   an IPv4 address or an IPv6 /64; without one, only the per-email limit applies. Each attempt
- *   is counted BEFORE the password is checked, so simultaneous requests cannot all pass.
+ *   per email across all addresses, within 15 minutes. The counts live in MongoDB
+ *   (login-limiter.server.ts), so they survive restarts and are shared by all server instances.
+ *   An address is an IPv4 address or an IPv6 /64; without one, only the per-email limit applies.
+ *   Each attempt is counted atomically BEFORE the password is checked, so simultaneous requests
+ *   cannot all pass. If the counters cannot be reached, login fails CLOSED (no password check).
  * - Password hashing is bounded per process (see password.server.ts); when it is full, login
  *   answers "Too many attempts" without hashing.
  * - Sessions last 7 days from login. Only the SHA-256 hash of the token is stored.
@@ -25,8 +27,10 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Connection } from "mongoose";
 import { z } from "zod";
 import { DatabaseUnavailableError } from "../db.server";
+import { loginAttemptModel } from "../models/login-attempt.server";
 import { sessionModel } from "../models/session.server";
 import { userModel, type UserRole } from "../models/user.server";
+import { createLoginLimiter, type LoginLimiter } from "./login-limiter.server";
 import {
   getDummyHash,
   hashPassword,
@@ -108,58 +112,6 @@ export function loginAddressKey(ip: string): string {
   return `${prefix.map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
 }
 
-/**
- * In-memory login-attempt counter. Resets on server restart and is per process: several server
- * instances would each keep their own count (a shared store would be needed for that; not built).
- */
-export function createLoginLimiter(
-  limit: { maxFailures: number; windowMs: number } = LOGIN_LIMIT,
-  maxKeys = 10_000,
-) {
-  const attempts = new Map<string, number[]>();
-  const recent = (key: string, now: number) =>
-    (attempts.get(key) ?? []).filter((t) => now - t < limit.windowMs);
-  return {
-    blocked(key: string, now: number) {
-      return recent(key, now).length >= limit.maxFailures;
-    },
-    /**
-     * Checks the limit and counts this attempt in one synchronous step, so concurrent requests
-     * cannot all pass before any is counted. Returns false (nothing counted) when blocked.
-     */
-    tryAttempt(key: string, now: number): boolean {
-      const times = recent(key, now);
-      if (times.length >= limit.maxFailures) return false;
-      if (!attempts.has(key) && attempts.size >= maxKeys) {
-        // Bound memory: drop entries whose window has passed, else the oldest key.
-        for (const [k, t] of attempts)
-          if (t.every((x) => now - x >= limit.windowMs)) attempts.delete(k);
-        if (attempts.size >= maxKeys) attempts.delete(attempts.keys().next().value ?? "");
-      }
-      attempts.set(key, [...times, now]);
-      return true;
-    },
-    /** Un-counts one attempt that never reached a verdict (hashing busy, database down). */
-    cancel(key: string, at: number) {
-      const times = attempts.get(key);
-      const i = times?.indexOf(at) ?? -1;
-      if (!times || i < 0) return;
-      times.splice(i, 1);
-      if (times.length === 0) attempts.delete(key);
-    },
-    reset(key: string) {
-      attempts.delete(key);
-    },
-  };
-}
-
-export type LoginLimiter = ReturnType<typeof createLoginLimiter>;
-
-/** One limiter of each kind per server process: per email + address, per address, per email. */
-export const loginLimiter = createLoginLimiter();
-export const addressLoginLimiter = createLoginLimiter(LOGIN_ADDRESS_LIMIT);
-export const accountLoginLimiter = createLoginLimiter(LOGIN_ACCOUNT_LIMIT);
-
 async function db<T>(op: () => Promise<T>): Promise<T> {
   try {
     return await op();
@@ -180,9 +132,12 @@ export function createAuthService(
   const Users = userModel(conn);
   const Sessions = sessionModel(conn);
   const now = deps.now ?? (() => new Date());
-  const limiter = deps.limiter ?? loginLimiter;
-  const addressLimiter = deps.addressLimiter ?? addressLoginLimiter;
-  const accountLimiter = deps.accountLimiter ?? accountLoginLimiter;
+  // Stateless wrappers around the shared `login_attempts` collection on this connection.
+  const limiter = deps.limiter ?? createLoginLimiter(conn, "email_address", LOGIN_LIMIT);
+  const addressLimiter =
+    deps.addressLimiter ?? createLoginLimiter(conn, "address", LOGIN_ADDRESS_LIMIT);
+  const accountLimiter =
+    deps.accountLimiter ?? createLoginLimiter(conn, "account", LOGIN_ACCOUNT_LIMIT);
 
   const findUser = (email: string) => db(() => Users.findOne({ email }).select("+passwordHash"));
 
@@ -239,19 +194,34 @@ export function createAuthService(
       const address = ip === undefined ? undefined : loginAddressKey(ip);
       const key = address === undefined ? undefined : `${email}|${address}`;
       const at = now().getTime();
-      // Counted in every applicable limiter now, before any await, and only if all allow it; a
-      // wrong password leaves all counted. A refusal un-counts the limiters already passed.
-      if (address !== undefined && !addressLimiter.tryAttempt(address, at))
-        return { ok: false, error: LOGIN_THROTTLED };
-      if (key !== undefined && !limiter.tryAttempt(key, at)) {
-        if (address !== undefined) addressLimiter.cancel(address, at);
-        return { ok: false, error: LOGIN_THROTTLED };
+      // Counted in every applicable limiter (each count is atomic) before the password is
+      // checked, and kept only if all allow it; a wrong password leaves all counted. A refusal
+      // un-counts the limiters already passed. Un-counting is best effort: if it fails, the
+      // attempt stays counted (the safe direction).
+      const counted: { limiter: LoginLimiter; key: string; attempt: string }[] = [];
+      const undo = () =>
+        Promise.all(counted.map((c) => c.limiter.cancel(c.key, c.attempt).catch(() => undefined)));
+      const steps: [LoginLimiter, string | undefined][] = [
+        [addressLimiter, address],
+        [limiter, key],
+        [accountLimiter, email],
+      ];
+      try {
+        for (const [l, k] of steps) {
+          if (k === undefined) continue;
+          const attempt = await l.tryAttempt(k, at);
+          if (attempt === undefined) {
+            await undo();
+            return { ok: false, error: LOGIN_THROTTLED };
+          }
+          counted.push({ limiter: l, key: k, attempt });
+        }
+      } catch (e) {
+        // Fail closed: without a limiter answer there is no password check.
+        await undo();
+        throw e;
       }
-      if (!accountLimiter.tryAttempt(email, at)) {
-        if (key !== undefined) limiter.cancel(key, at);
-        if (address !== undefined) addressLimiter.cancel(address, at);
-        return { ok: false, error: LOGIN_THROTTLED };
-      }
+      const attemptOf = (l: LoginLimiter) => counted.find((c) => c.limiter === l)?.attempt;
 
       let user: Awaited<ReturnType<typeof findUser>>;
       let valid: boolean;
@@ -262,19 +232,20 @@ export function createAuthService(
           : (await verifyPassword(password, await getDummyHash()), false);
       } catch (e) {
         // No verdict was reached, so this attempt does not count against the owner.
-        if (key !== undefined) limiter.cancel(key, at);
-        if (address !== undefined) addressLimiter.cancel(address, at);
-        accountLimiter.cancel(email, at);
+        await undo();
         if (e instanceof PasswordHashingBusyError) return { ok: false, error: LOGIN_THROTTLED };
         throw e;
       }
       if (!user || !valid || !user.active) return { ok: false, error: LOGIN_FAILED };
 
-      if (key !== undefined) limiter.reset(key);
+      if (key !== undefined) await limiter.reset(key);
       // A correct password does not use up the address's or the account's allowance (other
       // failures stay counted, so signing in does not clear an attacker's count).
-      if (address !== undefined) addressLimiter.cancel(address, at);
-      accountLimiter.cancel(email, at);
+      const addressAttempt = attemptOf(addressLimiter);
+      if (address !== undefined && addressAttempt !== undefined)
+        await addressLimiter.cancel(address, addressAttempt);
+      const accountAttempt = attemptOf(accountLimiter);
+      if (accountAttempt !== undefined) await accountLimiter.cancel(email, accountAttempt);
       const token = newToken();
       const id = hashToken(token);
       const expiresAt = new Date(at + SESSION_TTL_MS);
@@ -368,8 +339,12 @@ export function createAuthService(
   };
 }
 
-/** Unique email + session cleanup indexes. Connections use autoIndex: false, so call explicitly. */
+/**
+ * Unique email, session cleanup and login-attempt cleanup (TTL) indexes. Connections use
+ * autoIndex: false, so call explicitly (setup scripts only).
+ */
 export async function ensureAuthIndexes(conn: Connection) {
   await userModel(conn).createIndexes();
   await sessionModel(conn).createIndexes();
+  await loginAttemptModel(conn).createIndexes();
 }

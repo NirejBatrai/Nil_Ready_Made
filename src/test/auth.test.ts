@@ -11,12 +11,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import {
   AuthError,
   createAuthService,
-  createLoginLimiter,
   ensureAuthIndexes,
   LAST_SEEN_INTERVAL_MS,
   LOGIN_ACCOUNT_LIMIT,
   LOGIN_ADDRESS_LIMIT,
   LOGIN_FAILED,
+  LOGIN_LIMIT,
   LOGIN_THROTTLED,
   loginAddressKey,
   MAX_SESSIONS_PER_USER,
@@ -26,6 +26,8 @@ import {
   USER_AGENT_MAX_LENGTH,
 } from "@/server/auth/auth.server";
 import { sessionCookieName, sessionCookieOptions } from "@/server/auth/cookie.server";
+import { createLoginLimiter, type LoginLimit } from "@/server/auth/login-limiter.server";
+import { loginAttemptModel } from "@/server/models/login-attempt.server";
 import {
   createConcurrencyLimit,
   HASH_CONCURRENCY,
@@ -49,12 +51,17 @@ let server: MongoMemoryServer;
 let conn: Connection;
 let clock: number;
 const now = () => new Date(clock);
-const freshLimiters = () => ({
-  limiter: createLoginLimiter(),
-  addressLimiter: createLoginLimiter(LOGIN_ADDRESS_LIMIT),
-  accountLimiter: createLoginLimiter(LOGIN_ACCOUNT_LIMIT),
+/** The three MongoDB-backed limiters on `on` (default: the test database). */
+const freshLimiters = (on?: Connection) => ({
+  limiter: createLoginLimiter(on ?? conn, "email_address", LOGIN_LIMIT),
+  addressLimiter: createLoginLimiter(on ?? conn, "address", LOGIN_ADDRESS_LIMIT),
+  accountLimiter: createLoginLimiter(on ?? conn, "account", LOGIN_ACCOUNT_LIMIT),
 });
-/** A fresh service + attempt counters per test, sharing the controllable clock. */
+const accountLimit = (maxFailures: number): LoginLimit => ({
+  maxFailures,
+  windowMs: 15 * 60 * 1000,
+});
+/** A fresh service per test (attempt counters cleared in beforeEach), sharing the clock. */
 let auth: ReturnType<typeof createAuthService>;
 
 beforeAll(async () => {
@@ -75,7 +82,9 @@ afterAll(async () => {
 beforeEach(async () => {
   await userModel(conn).collection.deleteMany({});
   await sessionModel(conn).collection.deleteMany({});
-  clock = Date.parse("2026-10-23T03:00:00Z");
+  await loginAttemptModel(conn).collection.deleteMany({});
+  // Real time, so the TTL indexes (sessions, login attempts) never delete test records early.
+  clock = Date.now();
   auth = createAuthService(conn, { now, ...freshLimiters() });
   const r = await auth.createFirstOwner({ email: EMAIL, name: "Test Owner", password: PASSWORD });
   if (!r.ok) throw new Error(r.error);
@@ -173,7 +182,7 @@ describe("login", () => {
   });
 });
 
-describe("failed-login limit (5 per email + IP per 15 minutes, in memory)", () => {
+describe("failed-login limit (5 per email + IP per 15 minutes, in MongoDB)", () => {
   const fail = () => auth.login({ email: EMAIL, password: "wrong-password-1" }, IP);
 
   it("blocks the 6th attempt, even with the right password, then allows again after 15 minutes", async () => {
@@ -194,12 +203,6 @@ describe("failed-login limit (5 per email + IP per 15 minutes, in memory)", () =
     expect((await auth.login({ email: EMAIL, password: PASSWORD }, IP)).ok).toBe(true);
     for (let i = 0; i < 4; i++) await fail();
     expect((await auth.login({ email: EMAIL, password: PASSWORD }, IP)).ok).toBe(true);
-  });
-
-  it("keeps its memory bounded", () => {
-    const limiter = createLoginLimiter({ maxFailures: 5, windowMs: 1000 }, 3);
-    for (let i = 0; i < 10; i++) limiter.tryAttempt(`k${i}`, 0);
-    expect(limiter.blocked("k0", 0)).toBe(false); // evicted, not retained forever
   });
 
   it("simultaneous wrong attempts: exactly 5 passwords are checked, the rest are refused", async () => {
@@ -301,7 +304,7 @@ describe("per-account limit (50 per email across all addresses per 15 minutes)",
   const failed = { ok: false, error: LOGIN_FAILED };
   const small = (maxFailures = 3) => ({
     ...freshLimiters(),
-    accountLimiter: createLoginLimiter({ maxFailures, windowMs: 15 * 60 * 1000 }),
+    accountLimiter: createLoginLimiter(conn, "account", accountLimit(maxFailures)),
   });
   const addr = (i: number) => `198.51.100.${i + 1}`;
 
@@ -351,7 +354,7 @@ describe("per-account limit (50 per email across all addresses per 15 minutes)",
   it("simultaneous attempts from many addresses: exactly the limit is checked; refusals use no address allowance", async () => {
     const limiters = {
       ...small(),
-      addressLimiter: createLoginLimiter({ maxFailures: 1, windowMs: 15 * 60 * 1000 }),
+      addressLimiter: createLoginLimiter(conn, "address", accountLimit(1)),
     };
     auth = createAuthService(conn, { now, ...limiters });
     const results = await Promise.all(
@@ -385,6 +388,7 @@ describe("per-account limit (50 per email across all addresses per 15 minutes)",
   });
 
   it("attempts that fail on a database error are not counted against the account", async () => {
+    // The counters stay reachable (test database); only the user lookup fails.
     const limiters = small(1);
     const dead = mongoose.createConnection();
     await dead.openUri(server.getUri(), { ...connectOptions(true), dbName: "luxe_auth_test" });
@@ -398,12 +402,29 @@ describe("per-account limit (50 per email across all addresses per 15 minutes)",
     expect((await auth.login({ email: EMAIL, password: PASSWORD }, addr(5))).ok).toBe(true);
   });
 
-  it("keeps its memory bounded like the other limits (same limiter, 10 000-key cap)", () => {
-    const source = readFileSync("src/server/auth/auth.server.ts", "utf8");
-    expect(source).toMatch(
-      /export const accountLoginLimiter = createLoginLimiter\(LOGIN_ACCOUNT_LIMIT\);/,
+  it("fails CLOSED when the counters cannot be reached: no password check, no session", async () => {
+    const dead = mongoose.createConnection();
+    await dead.openUri(server.getUri(), { ...connectOptions(true), dbName: "luxe_auth_test" });
+    await dead.destroy();
+    // Users and sessions are reachable; only the limiters' database is down.
+    const service = createAuthService(conn, { now, ...freshLimiters(dead) });
+    await expect(service.login({ email: EMAIL, password: PASSWORD }, IP)).rejects.toBeInstanceOf(
+      DatabaseUnavailableError,
     );
-    expect(source).toMatch(/maxKeys = 10_000/);
+    await expect(
+      service.login({ email: EMAIL, password: PASSWORD }, undefined),
+    ).rejects.toBeInstanceOf(DatabaseUnavailableError);
+    expect(await sessionModel(conn).countDocuments()).toBe(0);
+  });
+
+  it("all three limits share one MongoDB collection, keyed by limit kind", async () => {
+    await auth.login({ email: EMAIL, password: "wrong-password-1" }, IP);
+    const ids = (await loginAttemptModel(conn).collection.find().toArray()).map((d) => d._id);
+    expect(ids.sort()).toEqual([
+      `account|${EMAIL}`,
+      `address|${IP}`,
+      `email_address|${EMAIL}|${IP}`,
+    ]);
   });
 });
 
@@ -427,7 +448,7 @@ describe("no client address: no shared bucket", { timeout: 60_000 }, () => {
     auth = createAuthService(conn, {
       now,
       ...freshLimiters(),
-      accountLimiter: createLoginLimiter({ maxFailures: 3, windowMs: 15 * 60 * 1000 }),
+      accountLimiter: createLoginLimiter(conn, "account", accountLimit(3)),
     });
     for (let i = 0; i < 3; i++)
       expect(await auth.login({ email: EMAIL, password: "wrong-password-1" }, undefined)).toEqual(
