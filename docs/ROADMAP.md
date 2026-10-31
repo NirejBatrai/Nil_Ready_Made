@@ -18,15 +18,15 @@ Workers-specific statements elsewhere in the docs are historical.
 | Phase One demo fixes (drawer/audit actors, deterministic reset, chart metrics, mobile layout) | DONE   | Committed on `main`                                                          |
 | Per-product minimum selling price (demo checkout + rules in `calc.ts`)                        | DONE   | Committed on `main`                                                          |
 | Repository prepared for private GitHub (no Lovable sync)                                      | DONE   | `main` = `origin/main` (local tracking ref)                                  |
-| Backend Step 1 — MongoDB connection foundation                                                | DONE   | Commit `722d86f` (local branch, not pushed)                                  |
-| Product model + server-only product service                                                   | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
-| Backend Step 2a — owner auth core, local owner script, dev bound to `127.0.0.1`               | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
-| Backend Step 2b — `safeErrors`, `requireOwner`, isolated E2E suite                            | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
-| Backend Step 2c — `/login` UI                                                                 | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
-| Backend Step 3a — read-only `/owner/products`                                                 | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
-| Backend Step 3b — owner-only product creation + `db:setup-indexes`                            | DONE   | Commit `ced5535` (local branch, not pushed)                                  |
-| Handbook (`AGENTS.md`, `docs/`) + audit hardening (`envDir: false`, `safeErrors` on health)   | DONE   | Commit `4da3c13` (local branch, not pushed)                                  |
-| Login hardening (atomic attempt counting, per-address limit, bounded password hashing)        | DONE   | Commit `42518cc` (local branch, not pushed)                                  |
+| Backend Step 1 — MongoDB connection foundation                                                | DONE   | Commit `722d86f`                                                             |
+| Product model + server-only product service                                                   | DONE   | Commit `ced5535`                                                             |
+| Backend Step 2a — owner auth core, local owner script, dev bound to `127.0.0.1`               | DONE   | Commit `ced5535`                                                             |
+| Backend Step 2b — `safeErrors`, `requireOwner`, isolated E2E suite                            | DONE   | Commit `ced5535`                                                             |
+| Backend Step 2c — `/login` UI                                                                 | DONE   | Commit `ced5535`                                                             |
+| Backend Step 3a — read-only `/owner/products`                                                 | DONE   | Commit `ced5535`                                                             |
+| Backend Step 3b — owner-only product creation + `db:setup-indexes`                            | DONE   | Commit `ced5535`                                                             |
+| Handbook (`AGENTS.md`, `docs/`) + audit hardening (`envDir: false`, `safeErrors` on health)   | DONE   | Commit `4da3c13`                                                             |
+| Login hardening (atomic attempt counting, per-address limit, bounded password hashing)        | DONE   | Commit `42518cc`                                                             |
 | Baseline security headers (`src/server.ts`, `public/_headers`, HSTS off by default)           | DONE   | Commit `4711be0`; `public/_headers` was Cloudflare-only; replaced in Step 5b |
 
 | Step 7a — session hardening: revoke all sessions, "Sign out everywhere", old session deleted at login, 5-session cap, `createdIp`/`userAgent`/`lastSeenAt` | DONE | Committed 2026-10-28 |
@@ -56,7 +56,7 @@ Candidate future work (PLANNED only, order not decided):
 
 | Item                                                                                                                                                                                                      | Depends on             | Approval gate                            |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------- |
-| Merge `feature/mongodb-foundation` into `main` (branch pushed to GitHub on 2026-10-28 by the owner)                                                                                                       | Owner review           | Owner approval to merge                  |
+| Merge `feature/mongodb-foundation` into `main`                                                                                                                                                            | Owner review           | Owner approval to merge                  |
 | Login client address: stop all unknown addresses sharing one `"unknown"` limit bucket, plus a per-account limit — **done 2026-10-27 (Step 2, committed)**; its Workers path is historical (decision 0001) | Auth                   | New step approval                        |
 | Investigate the intermittent E2E failure on the product list after creation — **root-caused and fixed 2026-10-27, re-verified 2026-10-28 (Step 3, committed)**: router showed the cached stale list       | 3b                     | Owner review                             |
 | Workers/workerd test: run Mongoose and scrypt under `wrangler dev`/workerd and measure CPU and memory — **done 2026-10-28 (Step 4)**; decision 0001                                                       | Auth, products         | Done                                     |
