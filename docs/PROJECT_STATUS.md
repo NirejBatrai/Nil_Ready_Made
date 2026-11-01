@@ -11,7 +11,9 @@ Luxe Retail OS is a mobile-first POS / back-office app for a small shop in Thail
 
 - **The demo** (all `_shell` screens: dashboard, checkout, sales, products, inventory, payments,
   cash drawer, approvals, audit, employees, reports, settings) is a **browser-only simulation**
-  with fictional data in `localStorage` and simulated roles. VERIFIED.
+  with fictional data in `localStorage` and simulated roles. VERIFIED. It is **OFF by default in
+  production builds** (`DEMO_ENABLED`; `/` then shows only Sign in and demo screens redirect to
+  `/login`), ON in dev and tests.
 - **A real backend is being added alongside it** (TanStack Start server functions + MongoDB via
   Mongoose), currently covering: database connection, owner login, an owner product list
   (active and archived), and owner-only product creation, editing, archiving and restoring.
@@ -63,7 +65,7 @@ Details: [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [CHANGE
 | `bun run typecheck` (`tsc --noEmit -p .`)                 | exit 0                                                                                                                                                                                                                   |
 | `bun run lint`                                            | 0 errors, 11 warnings (pre-existing `react-refresh/only-export-components`)                                                                                                                                              |
 | `bun run format:check` (`prettier --check .`)             | exit 0, all files formatted                                                                                                                                                                                              |
-| `bun run test`                                            | 22 files passed, 2 skipped; **332 tests passed, 0 failed, 57 skipped** (opt-in suites)                                                                                                                                   |
+| `bun run test`                                            | 23 files passed, 2 skipped; **336 tests passed, 0 failed, 57 skipped** (opt-in suites)                                                                                                                                   |
 | `bun run test:e2e`                                        | **55 passed, 0 failed, 1 skipped** (Chrome-not-found placeholder)                                                                                                                                                        |
 | Production smoke test (Step 5b)                           | Built with `node-server` in an isolated copy, started with `node .output/server/index.mjs` against a throwaway local `mongod`: login, empty list, create, row after reload; headers on pages, `favicon.ico`, `/assets/*` |
 | Product-create E2E chain, 15× in a loop (Step 3)          | **15/15 passed** with the fix; with `staleReloadMode` removed the test failed (`shown: true`). See [CHANGELOG.md](CHANGELOG.md)                                                                                          |

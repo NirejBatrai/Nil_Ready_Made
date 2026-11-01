@@ -1,12 +1,17 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, ShieldAlert, ShoppingBag, LayoutDashboard } from "lucide-react";
+import { demoIsOn } from "@/lib/demo";
 import { repo } from "@/lib/repository";
 import { keepStaffOutOfDemo } from "@/lib/staff-guard";
 import type { Role } from "@/types/domain";
 
 export const Route = createFileRoute("/")({
-  // INTERIM Quick Sales (decision 0004): staff sessions go to /quick-sales, never the demo.
-  beforeLoad: keepStaffOutOfDemo,
+  beforeLoad: async () => {
+    // INTERIM Quick Sales (decision 0004): staff sessions go to /quick-sales, never the demo.
+    await keepStaffOutOfDemo();
+    // DEMO_ENABLED (OFF by default in production): without it, only "Sign in" is shown.
+    return { demoEnabled: await demoIsOn() };
+  },
   head: () => ({
     meta: [
       { title: "Luxe Retail OS — Retail POS & inventory demo" },
@@ -28,6 +33,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
+  const { demoEnabled } = Route.useRouteContext();
   const nav = useNavigate();
   const enter = (role: Role) => {
     repo.setDemoRole(role);
@@ -57,49 +63,53 @@ function Index() {
         </div>
         <h1 className="mt-6 text-3xl font-semibold tracking-tight">Luxe Retail OS</h1>
         <p className="mt-2 text-muted-foreground">
-          Point of sale and back office for Luxe Beach Boutique. Choose a demo account to continue.
+          Point of sale and back office for Luxe Beach Boutique.
         </p>
-        <div className="mt-8 grid gap-3">
-          {cards.map((c) => (
-            <button
-              key={c.role}
-              onClick={() => enter(c.role)}
-              className="surface group flex items-center gap-4 p-5 text-left transition-colors hover:border-primary/50"
-            >
-              <div className="rounded-md bg-sage p-2.5 text-sage-foreground">
-                <c.icon className="size-5" />
-              </div>
-              <div className="flex-1">
-                <div className="font-medium">
-                  {c.title}{" "}
-                  <span className="text-sm font-normal text-muted-foreground">· {c.who}</span>
-                </div>
-                <div className="text-sm text-muted-foreground">{c.body}</div>
-              </div>
-              <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-            </button>
-          ))}
-        </div>
-        <p className="mt-4 text-center text-sm">
-          <Link
-            to="/login"
-            data-testid="owner-signin-link"
-            className="font-medium text-primary hover:underline"
-          >
-            Owner sign-in (real account)
-          </Link>
-          <span className="block text-xs text-muted-foreground">
-            Separate from the simulated demo accounts above.
-          </span>
-        </p>
-        <div className="mt-6 flex gap-2 rounded-md bg-warning-soft p-3 text-xs text-warning">
-          <ShieldAlert className="size-4 shrink-0" />
-          <p>
-            Demo accounts are a UI simulation, not real sign-in. All data is fictional and stored in
-            this browser only. Access control, payments and audit integrity must be enforced by the
-            future backend.
-          </p>
-        </div>
+        <Link
+          to="/login"
+          data-testid="owner-signin-link"
+          className="mt-8 flex h-12 w-full items-center justify-center rounded-md bg-primary text-base font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Sign in
+        </Link>
+
+        {demoEnabled && (
+          <section data-testid="demo-section" className="mt-10" aria-labelledby="demo-heading">
+            <h2 id="demo-heading" className="text-sm font-medium text-muted-foreground">
+              Demo (practice only — nothing is saved)
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">Choose a demo account to continue.</p>
+            <div className="mt-3 grid gap-3">
+              {cards.map((c) => (
+                <button
+                  key={c.role}
+                  onClick={() => enter(c.role)}
+                  className="surface group flex items-center gap-4 p-5 text-left transition-colors hover:border-primary/50"
+                >
+                  <div className="rounded-md bg-sage p-2.5 text-sage-foreground">
+                    <c.icon className="size-5" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-medium">
+                      {c.title}{" "}
+                      <span className="text-sm font-normal text-muted-foreground">· {c.who}</span>
+                    </div>
+                    <div className="text-sm text-muted-foreground">{c.body}</div>
+                  </div>
+                  <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </button>
+              ))}
+            </div>
+            <div className="mt-6 flex gap-2 rounded-md bg-warning-soft p-3 text-xs text-warning">
+              <ShieldAlert className="size-4 shrink-0" />
+              <p>
+                Demo accounts are a UI simulation, not real sign-in. All data is fictional and
+                stored in this browser only. Access control, payments and audit integrity must be
+                enforced by the future backend.
+              </p>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

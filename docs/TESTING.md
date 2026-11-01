@@ -30,20 +30,20 @@ How `.env` is kept out of tests (VERIFIED 2026-10-24):
 
 ## Commands
 
-| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                                                |
-| ------------------------ | --------------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (11-01, with interim Quick Sales)                                                                              |
-| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                                                        |
-| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (11-01, with interim Quick Sales)                                                |
-| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (11-01, with interim Quick Sales)                                                         |
-| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 332 passed, 0 failed, 57 skipped (11-01, with interim Quick Sales)                                                    |
-| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                                               |
-| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 55 passed, 0 failed, 1 skipped (11-01, with interim Quick Sales); former intermittent failure fixed, see Known limits |
-| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                                              |
-| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                                                 |
-| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                                                 |
-| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                                                     |
-| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                                                 |
+| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                                                            |
+| ------------------------ | --------------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (11-01, with interim Quick Sales)                                                                                          |
+| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                                                                    |
+| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (11-01, with interim Quick Sales)                                                            |
+| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (11-01, with interim Quick Sales)                                                                     |
+| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 336 passed, 0 failed, 57 skipped (11-01, demo hidden by default in production)                                                    |
+| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                                                           |
+| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 55 passed, 0 failed, 1 skipped (11-01, demo hidden by default in production); former intermittent failure fixed, see Known limits |
+| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                                                          |
+| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                                                             |
+| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                                                             |
+| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                                                                 |
+| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                                                             |
 
 Do not run the `.env`-loading commands unless the owner asks; prefer that the owner runs them.
 If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier …` are equivalent.
@@ -153,6 +153,11 @@ leak guard (the staff list not limited to own sales: 2 failed; the day totals ad
 page: 4 failed). Control run: 41/41 passed. The E2E suite also caught a real gap while being
 written: `/owner/products/new` rendered its empty form for staff (fixed: non-owners are sent to
 `/login`, which sends staff to `/quick-sales`).
+
+Also on 2026-11-01 (demo hidden by default): the production OFF default of `DEMO_ENABLED`
+(changed to ON): the unit test and the E2E built-server check (`demo-section` on `/`) failed;
+restored byte-identical. The E2E built server runs without the setting (OFF) and a second time
+with `DEMO_ENABLED=true` (ON).
 
 ## Regenerating `src/routeTree.gen.ts` without loading `.env`
 

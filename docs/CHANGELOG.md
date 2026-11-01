@@ -4,6 +4,43 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-11-01 — Demo hidden by default in production
+
+- **`DEMO_ENABLED`** (host environment, read on the server at call time,
+  `src/server/demo-setting.server.ts`): `"true"` on, `"false"` off; unset means **OFF in
+  production builds**, ON in `vite dev` and tests. An unreadable environment, or a failed check
+  in the browser, means OFF (fail safe). Server function `getDemoEnabled` (`safeErrors`) and the
+  guards `demoIsOn` / `requireDemo` in `src/lib/demo.ts`.
+- **Demo OFF:** `/` shows only one primary **Sign in** button. Every demo screen (the `_shell`
+  layout: `/sales`, `/pos`, `/dashboard`, …) redirects to `/login`.
+- **Demo ON:** **Sign in** is the primary button at the top. The demo accounts follow under
+  "Demo (practice only — nothing is saved)", with the existing simulation notice.
+- **Renamed:** "Owner sign-in (real account)" is now **Sign in**, because staff use it too. The
+  `/login` heading and title are now "Sign in", and its footer link is "← Back to start".
+- **Files:**
+  - New: `src/server/demo-setting.server.ts`, `src/lib/demo.ts`, `src/test/demo-setting.test.ts`.
+  - Changed: `src/routes/index.tsx` (layout and setting), `src/routes/_shell.tsx` (redirect
+    when OFF; the staff guard is unchanged), `src/routes/login.tsx` (text only),
+    `src/test/auth.e2e.test.ts`, `.env.example`, and the docs.
+  - The demo screens, auth and Quick Sales are unchanged.
+- **Tests:**
+  - Unit (`demo-setting.test.ts`): the defaults, the overrides, unreadable environment → OFF,
+    and a source check.
+  - E2E, dev server (demo ON): Sign in sits above the demo heading and is primary; `/pos` and
+    the demo products page work.
+  - E2E, built production server with no setting: `/` has no demo buttons, `/pos`, `/sales`,
+    `/dashboard`, `/products` and `/settings` answer 307 → `/login`, and a browser visit to
+    `/sales` ends on `/login`.
+  - E2E, the same build with `DEMO_ENABLED=true`: the demo is shown and `/pos` answers 200.
+- **Results:**
+  - `bun run test`: 336 passed, 0 failed, 57 skipped.
+  - `bun run test:e2e`: 55 passed, 0 failed, 1 skipped.
+  - Typecheck and format check: exit 0.
+  - Lint: 0 errors.
+- **Mutation check:** I changed the production default from OFF to ON (`return true`). The unit
+  test failed, and the E2E built-server check failed with "demo-section" on `/`. The file was
+  restored byte-identical; the control run passed.
+
 ## 2026-11-01 — Interim Quick Sales (decision 0004, temporary)
 
 A temporary sales notebook for about two weeks, until products and stock are ready. **Retires

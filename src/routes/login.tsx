@@ -41,10 +41,7 @@ export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>): LoginSearch =>
     search["redirect"] === ALLOWED_REDIRECT ? { redirect: ALLOWED_REDIRECT } : {},
   head: () => ({
-    meta: [
-      { title: "Owner sign-in · Luxe Retail OS" },
-      { name: "robots", content: "noindex, nofollow" },
-    ],
+    meta: [{ title: "Sign in · Luxe Retail OS" }, { name: "robots", content: "noindex, nofollow" }],
   }),
   loader: async () => {
     let user: Awaited<ReturnType<typeof getCurrentUser>>;
@@ -125,7 +122,7 @@ function LoginPage() {
         <div className="flex size-10 items-center justify-center rounded-md bg-primary font-semibold text-primary-foreground">
           L
         </div>
-        <h1 className="mt-6 text-2xl font-semibold tracking-tight">Owner sign-in</h1>
+        <h1 className="mt-6 text-2xl font-semibold tracking-tight">Sign in</h1>
         <p className="mt-1 text-sm text-muted-foreground">Real account · backend authentication</p>
 
         {unavailable && (
@@ -245,7 +242,7 @@ function LoginPage() {
           roles; signing in here does not change them.
         </p>
         <Link to="/" className="mt-4 block text-sm font-medium text-primary hover:underline">
-          ← Back to the demo
+          ← Back to start
         </Link>
       </main>
     </div>

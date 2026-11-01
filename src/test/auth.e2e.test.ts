@@ -1597,13 +1597,23 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         .toBe("Too many attempts. Try again later.");
     });
 
-    it("the demo is unchanged: landing page cards + sign-in link, and /pos still works", async () => {
+    it("demo ON (dev default): Sign in first, demo accounts below their heading, and /pos still works", async () => {
       const demo = await context.newPage();
       await demo.goto(`${base}/`, { waitUntil: "networkidle" });
       expect(await demo.getByText("Choose a demo account to continue.").isVisible()).toBe(true);
       const link = demo.getByTestId("owner-signin-link");
-      expect(await link.textContent()).toBe("Owner sign-in (real account)");
+      expect(await link.textContent()).toBe("Sign in");
       expect(await link.getAttribute("href")).toBe("/login");
+      const section = demo.getByTestId("demo-section");
+      expect(await section.getByRole("heading").textContent()).toBe(
+        "Demo (practice only — nothing is saved)",
+      );
+      // The real sign-in is the primary button, above the demo accounts.
+      const linkBox = await link.boundingBox();
+      const sectionBox = await section.boundingBox();
+      if (!linkBox || !sectionBox) throw new Error("not rendered");
+      expect(linkBox.y + linkBox.height).toBeLessThanOrEqual(sectionBox.y);
+      expect(await link.getAttribute("class")).toMatch(/bg-primary/);
       await demo.getByRole("button", { name: /Employee/ }).click();
       await demo.waitForURL(`${base}/pos`);
       await demo.getByLabel("Search products").first().waitFor();
@@ -1714,6 +1724,37 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         await headersFile.text();
         expect(headersFile.status).toBe(404);
 
+        // DEMO_ENABLED unset in a production build: the demo is OFF.
+        const start = await (await at("/")).text();
+        expect(start).toContain('data-testid="owner-signin-link"');
+        expect(start).toContain(">Sign in<");
+        for (const demoText of [
+          "demo-section",
+          "Choose a demo account",
+          "Employee",
+          "Ploy Siriwan",
+        ])
+          expect(start, demoText).not.toContain(demoText);
+        for (const path of ["/pos", "/sales", "/dashboard", "/products", "/settings"]) {
+          const res = await fetch(`http://127.0.0.1:${builtPort}${path}`, { redirect: "manual" });
+          await res.text();
+          expect(res.status, path).toBe(307);
+          expect(res.headers.get("location"), path).toMatch(/\/login$/);
+        }
+        const offPage = await context.newPage();
+        try {
+          await offPage.goto(`http://127.0.0.1:${builtPort}/`, { waitUntil: "networkidle" });
+          expect(await offPage.getByTestId("demo-section").count()).toBe(0);
+          expect(await offPage.getByRole("button").count()).toBe(0);
+          await offPage.getByTestId("owner-signin-link").click();
+          await offPage.waitForURL(`http://127.0.0.1:${builtPort}/login`);
+          // A client-side visit to a demo screen also ends on /login.
+          await offPage.goto(`http://127.0.0.1:${builtPort}/sales`);
+          await offPage.waitForURL(`http://127.0.0.1:${builtPort}/login`);
+        } finally {
+          await offPage.close();
+        }
+
         // CSRF on the built server: capture a real server-function request from its own login
         // page (no database is configured, so the login itself fails), then replay it.
         const builtPage = await context.newPage();
@@ -1744,6 +1785,37 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         const sameOrigin = await replay(builtLogin, { origin: "same" });
         expect(sameOrigin.status).toBe(200);
         expect(sameOrigin.text).not.toMatch(LEAK);
+        // The same build with DEMO_ENABLED=true: the demo is ON.
+        const onPort = await freePort();
+        const withDemo = spawn(process.execPath, [".output/server/index.mjs"], {
+          cwd: copy,
+          env: {
+            PATH: process.env["PATH"] ?? "",
+            HOME: tmpdir(),
+            NODE_ENV: "production",
+            HOST: "127.0.0.1",
+            PORT: String(onPort),
+            DEMO_ENABLED: "true",
+          },
+        });
+        let onOutput = "";
+        withDemo.stdout?.on("data", (d: Buffer) => (onOutput += d.toString()));
+        try {
+          const onStarted = Date.now();
+          while (!onOutput.includes(`127.0.0.1:${onPort}`)) {
+            if (Date.now() - onStarted > 30_000 || withDemo.exitCode !== null)
+              throw new Error("built server with the demo did not start");
+            await new Promise((r) => setTimeout(r, 100));
+          }
+          const onStart = await (await fetch(`http://127.0.0.1:${onPort}/`)).text();
+          expect(onStart).toContain('data-testid="demo-section"');
+          expect(onStart).toContain("Demo (practice only — nothing is saved)");
+          const pos = await fetch(`http://127.0.0.1:${onPort}/pos`, { redirect: "manual" });
+          await pos.text();
+          expect(pos.status).toBe(200);
+        } finally {
+          withDemo.kill("SIGTERM");
+        }
       } finally {
         built.kill("SIGTERM");
       }

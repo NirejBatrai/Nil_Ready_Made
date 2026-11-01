@@ -93,6 +93,7 @@ Run these in the project folder on your own computer. The scripts read `MONGODB_
 | `NITRO_PRESET`           | `vercel` (Vercel's `VERCEL=1` also selects it; explicit is clearer) | Production (build) |
 | `SECURITY_HSTS_MAX_AGE`  | **leave unset** (see step 8)                                        |                    |
 | `DB_HEALTHCHECK_ENABLED` | **leave unset**                                                     |                    |
+| `DEMO_ENABLED`           | **leave unset** (the demo stays off; `true` would offer it)         |                    |
 | `SUMMARY_API_TOKEN`      | output of `openssl rand -base64 32` (44 characters; ≥ 32 required)  | **Production**     |
 
 - [ ] Mark `MONGODB_URI` as **Sensitive**. Give it to **Production only**, so preview builds of
@@ -134,6 +135,8 @@ Things that could only be checked on a real deployment (decision 0003). Record t
       `*.vercel.app` by itself. Leave `SECURITY_HSTS_MAX_AGE` unset for this test deployment.
 - [ ] **No secrets leak:** `curl -s https://<app>.vercel.app/_headers` → 404, and
       `/dev/db-health` shows "disabled".
+- [ ] **Start page:** `/` shows only **Sign in** (no demo accounts), and `/pos` or `/sales`
+      redirect to `/login`.
 - [ ] **Sign-in:** sign in at `/login` → `/owner/products` (empty list). Add a product, edit
       it, archive it, see it under Archived, restore it.
 - [ ] **Login limit uses your address, not Vercel's:** sign out, then try a wrong password 6

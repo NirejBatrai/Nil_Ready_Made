@@ -7,6 +7,13 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
 
 - **The demo is not secure and never will be.** Its roles (`repo.setDemoRole`, `<OwnerOnly>`)
   and data live in the browser; anyone can change them. Never use demo state for access control.
+- **The demo is OFF by default in production builds** (`DEMO_ENABLED`, read on the server in
+  `src/server/demo-setting.server.ts`; `"true"` turns it on, `"false"` off; unset means OFF in
+  production, ON in `vite dev` and tests; an unreadable environment means OFF). When OFF, `/`
+  shows only **Sign in** and every demo screen (`_shell`) redirects to `/login`; any failure to
+  read the setting in the browser also counts as OFF. This keeps staff and customers away from
+  fictional data; it is not access control (the demo has no real data). Leave it unset in
+  production (E2E: built server OFF by default, ON with `DEMO_ENABLED=true`; mutation-checked).
 - **Real protections exist only on the server**: TanStack Start server functions plus MongoDB.
   Route guards (`beforeLoad` redirects) are convenience only; `requireOwner` is the enforcement.
 - Hosting is not set up. Everything below is verified locally with an isolated database.
