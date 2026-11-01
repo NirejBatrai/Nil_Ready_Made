@@ -88,6 +88,7 @@ const newToken = () => randomBytes(32).toString("base64url");
 
 const emailSchema = z.string().trim().toLowerCase().email().max(254);
 const loginSchema = z.object({ email: emailSchema, password: z.string().min(1).max(512) }).strict();
+const resetSchema = z.object({ email: emailSchema, password: z.string() }).strict();
 const ownerSchema = z
   .object({ email: emailSchema, name: z.string().trim().min(1).max(120), password: z.string() })
   .strict();
@@ -376,6 +377,31 @@ export function createAuthService(
           return { ok: false, error: "An owner or an account with that email already exists." };
         throw new DatabaseUnavailableError("unavailable");
       }
+    },
+
+    /**
+     * LOCAL SETUP ONLY (scripts/reset-password.ts). Never exposed as a server function.
+     * Sets a new password for an existing owner or staff account (same policy and scrypt hash as
+     * account creation), then revokes ALL of that user's sessions, so every device must sign in
+     * again. Changes only `passwordHash`: never the role, the email or `active`, so the
+     * one-owner rule is untouched. An unknown email gets only "No such user."
+     */
+    async resetPassword(
+      input: unknown,
+    ): Promise<{ ok: true; sessionsRevoked: number } | { ok: false; error: string }> {
+      const parsed = resetSchema.safeParse(input);
+      if (!parsed.success) return { ok: false, error: "Enter a valid email." };
+      const policy = passwordPolicyError(parsed.data.password);
+      if (policy) return { ok: false, error: policy };
+      const user = await db(() => Users.findOne({ email: parsed.data.email }, { _id: 1 }).lean());
+      if (!user) return { ok: false, error: "No such user." };
+      const passwordHash = await hashPassword(parsed.data.password);
+      const updated = await db(() =>
+        Users.updateOne({ _id: user._id }, { $set: { passwordHash } }),
+      );
+      if (updated.matchedCount !== 1) return { ok: false, error: "No such user." };
+      const sessionsRevoked = await revokeAllSessions(user._id);
+      return { ok: true, sessionsRevoked };
     },
   };
 }

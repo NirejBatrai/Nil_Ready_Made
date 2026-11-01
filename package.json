@@ -18,6 +18,7 @@
     "test:e2e": "RUN_AUTH_E2E=1 vitest run src/test/auth.e2e.test.ts",
     "auth:create-owner": "bun scripts/create-owner.ts",
     "auth:create-staff": "bun scripts/create-staff.ts",
+    "auth:reset-password": "bun scripts/reset-password.ts",
     "db:setup-indexes": "bun scripts/setup-indexes.ts",
     "db:migrate-money-satang": "bun scripts/migrate-money-satang.ts"
   },

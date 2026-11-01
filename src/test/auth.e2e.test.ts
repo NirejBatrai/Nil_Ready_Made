@@ -1913,6 +1913,15 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
           await offPage.goto(`http://127.0.0.1:${builtPort}/`, { waitUntil: "networkidle" });
           expect(await offPage.getByTestId("demo-section").count()).toBe(0);
           expect(await offPage.getByRole("button").count()).toBe(0);
+          // No "demo" wording in the title or description of the production start page.
+          expect(await offPage.title()).toBe("Luxe Retail OS — sign in");
+          const description = await offPage
+            .locator('meta[name="description"]')
+            .getAttribute("content");
+          expect(description).toBe(
+            "Luxe Retail OS — sign in to the point of sale and back office.",
+          );
+          expect(`${await offPage.title()} ${description}`).not.toMatch(/demo/i);
           await offPage.getByTestId("owner-signin-link").click();
           await offPage.waitForURL(`http://127.0.0.1:${builtPort}/login`);
           // A client-side visit to a demo screen also ends on /login.

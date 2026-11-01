@@ -14,16 +14,15 @@ export const Route = createFileRoute("/")({
   },
   head: () => ({
     meta: [
-      { title: "Luxe Retail OS — Retail POS & inventory demo" },
+      { title: "Luxe Retail OS — sign in" },
       {
         name: "description",
-        content:
-          "Mobile point of sale, inventory, cash reconciliation and owner oversight for a boutique retail shop. Interactive demo.",
+        content: "Luxe Retail OS — sign in to the point of sale and back office.",
       },
-      { property: "og:title", content: "Luxe Retail OS" },
+      { property: "og:title", content: "Luxe Retail OS — sign in" },
       {
         property: "og:description",
-        content: "Premium retail POS, inventory and business intelligence — interactive demo.",
+        content: "Luxe Retail OS — sign in to the point of sale and back office.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
