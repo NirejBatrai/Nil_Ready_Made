@@ -24,7 +24,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth";
-import { CATEGORY_LABEL, fmtTHB } from "@/lib/format";
+import { CATEGORY_LABEL } from "@/lib/format";
+import { formatSatang } from "@/lib/money";
 import {
   archiveProductForOwner,
   listProductsForOwner,
@@ -247,8 +248,8 @@ function OwnerProducts() {
                 <td className="px-4 py-2 font-medium">{p.name}</td>
                 <td className="px-2 font-mono text-[11px] text-muted-foreground">{p.sku}</td>
                 <td className="px-2">{CATEGORY_LABEL[p.category]}</td>
-                <td className="num px-2 text-right">{fmtTHB(p.price)}</td>
-                <td className="num px-2 text-right">{fmtTHB(p.minimumSellingPrice)}</td>
+                <td className="num px-2 text-right">{formatSatang(p.priceSatang)}</td>
+                <td className="num px-2 text-right">{formatSatang(p.minimumSellingPriceSatang)}</td>
                 <td className="num px-2 text-right">
                   {p.variants.reduce((total, v) => total + v.stock, 0)}
                 </td>

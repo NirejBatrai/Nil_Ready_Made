@@ -1,10 +1,13 @@
 /**
  * SERVER-ONLY Product model. Mirrors `Product` in src/types/domain.ts.
  *
- * - Money is whole baht (integers), as in the rest of the app.
+ * - All money is integer satang (฿1 = 100 satang); never floats. The field names say so
+ *   (`priceSatang`, `minimumSellingPriceSatang`, `costSatang`), so values stored before the
+ *   change (whole baht in `price`, `minimumSellingPrice`, `cost`) can never be read as satang;
+ *   `bun run db:migrate-money-satang` converts them.
  * - Each product has its own owner-defined minimum selling price; there is no global minimum.
- *   The price rule is `productPricingError` from src/lib/calc.ts, the same function the demo uses.
- * - `cost` is owner-only and `select: false`: no query returns it unless it asks for `+cost`.
+ *   The price rule is `productPricingErrorSatang` from src/lib/money.ts.
+ * - `costSatang` is owner-only and `select: false`: no query returns it unless it asks for it.
  * - Pricing fields can only change through document `save()` (the product service). Query-style
  *   updates that touch them are rejected, so they cannot skip the price/minimum validation.
  *   Raw driver calls (`Model.collection.*`, `bulkWrite`) bypass Mongoose and are not used.
@@ -13,7 +16,7 @@
  *   indexes, and product creation refuses to run until `verifyProductIndexes` confirms them.
  */
 import { Schema, type Connection, type HydratedDocument } from "mongoose";
-import { productPricingError } from "@/lib/calc";
+import { MAX_SATANG, productPricingErrorSatang } from "@/lib/money";
 import { CATEGORY_LABEL } from "@/lib/format";
 import type { Category } from "@/types/domain";
 
@@ -33,9 +36,9 @@ export interface ProductDoc {
   sku: string;
   category: Category;
   description: string;
-  price: number;
-  minimumSellingPrice: number;
-  cost?: number | undefined;
+  priceSatang: number;
+  minimumSellingPriceSatang: number;
+  costSatang?: number | undefined;
   barcode?: string | undefined;
   imageUrl?: string | undefined;
   active: boolean;
@@ -66,9 +69,17 @@ export const PRODUCT_INDEXES = [
 ] as const;
 
 /** Fields that only the product service may change (via `save()`, which runs validation). */
-export const PROTECTED_PRICING_FIELDS = ["price", "minimumSellingPrice", "cost"] as const;
+export const PROTECTED_PRICING_FIELDS = [
+  "priceSatang",
+  "minimumSellingPriceSatang",
+  "costSatang",
+] as const;
 
 const wholeBaht = { validator: Number.isInteger, message: "{PATH} must be a whole number." };
+const wholeSatang = {
+  validator: Number.isSafeInteger,
+  message: "{PATH} must be a whole number of satang.",
+};
 
 const variantSchema = new Schema<ProductVariantDoc>(
   {
@@ -91,9 +102,15 @@ export const productSchema = new Schema<ProductDoc>(
     sku: { type: String, required: true, trim: true, uppercase: true, match: SKU_PATTERN },
     category: { type: String, required: true, enum: Object.keys(CATEGORY_LABEL) },
     description: { type: String, default: "", trim: true, maxlength: 2000 },
-    price: { type: Number, required: true, min: 1, validate: wholeBaht },
-    minimumSellingPrice: { type: Number, required: true, min: 0, validate: wholeBaht },
-    cost: { type: Number, min: 0, validate: wholeBaht, select: false },
+    priceSatang: { type: Number, required: true, min: 1, max: MAX_SATANG, validate: wholeSatang },
+    minimumSellingPriceSatang: {
+      type: Number,
+      required: true,
+      min: 0,
+      max: MAX_SATANG,
+      validate: wholeSatang,
+    },
+    costSatang: { type: Number, min: 0, max: MAX_SATANG, validate: wholeSatang, select: false },
     barcode: { type: String, trim: true, maxlength: 64 },
     imageUrl: { type: String, trim: true, maxlength: 2048 },
     active: { type: Boolean, required: true, default: true },
@@ -118,13 +135,13 @@ for (const index of PRODUCT_INDEXES)
 
 // Cross-field rules every save must satisfy, whoever calls it.
 productSchema.pre("validate", function () {
-  const pricing = productPricingError({
-    price: this.price,
-    minimumSellingPrice: this.minimumSellingPrice,
+  const pricing = productPricingErrorSatang({
+    priceSatang: this.priceSatang,
+    minimumSellingPriceSatang: this.minimumSellingPriceSatang,
     // Only checked when loaded: cost is select:false and absent from ordinary reads.
-    cost: this.isSelected("cost") ? this.cost : undefined,
+    costSatang: this.isSelected("costSatang") ? this.costSatang : undefined,
   });
-  if (pricing) this.invalidate("minimumSellingPrice", pricing);
+  if (pricing) this.invalidate("minimumSellingPriceSatang", pricing);
   const skus = this.variants.map((v) => v.sku);
   const ids = this.variants.map((v) => v.id);
   if (new Set(skus).size !== skus.length)

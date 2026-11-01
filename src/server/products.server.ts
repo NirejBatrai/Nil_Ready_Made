@@ -2,10 +2,14 @@
  * SERVER-ONLY product service. Exposed only through owner-only server functions in
  * src/lib/products.ts (read list, read one with cost, create).
  *
- * - Every input is treated as untrusted: validated with Zod, then with `productPricingError`
- *   (per-product minimum, no global minimum), then by the Mongoose schema.
+ * - Every input is treated as untrusted: validated with Zod, then with
+ *   `productPricingErrorSatang` (per-product minimum, no global minimum), then by the Mongoose
+ *   schema.
+ * - All money is integer satang (`priceSatang`, `minimumSellingPriceSatang`, `costSatang`); never
+ *   floats. The browser parses typed amounts to satang (src/lib/money.ts); the server re-checks
+ *   that every amount is a whole number of satang within bounds.
  * - Ids are generated here; callers cannot choose them.
- * - Public reads never contain `cost`: it is excluded by the schema (`select: false`) and the
+ * - Public reads never contain `costSatang`: it is excluded by the schema (`select: false`) and the
  *   mappers build results field by field. Only `getProductForOwner` returns it, and its future
  *   caller must check the owner role first (authentication does not exist yet).
  * - New products and variants always start with stock 0; callers cannot supply stock. Stock
@@ -19,9 +23,9 @@
 import { randomUUID } from "node:crypto";
 import mongoose, { type Connection } from "mongoose";
 import { z } from "zod";
-import { productPricingError } from "@/lib/calc";
 import { CATEGORY_LABEL } from "@/lib/format";
-import type { Category, Product, ProductVariant, Result } from "@/types/domain";
+import { productPricingErrorSatang } from "@/lib/money";
+import type { Category, ProductVariant, Result } from "@/types/domain";
 import { DatabaseUnavailableError } from "./db.server";
 import {
   BARCODE_PATTERN,
@@ -31,8 +35,28 @@ import {
   type ProductDocument,
 } from "./models/product.server";
 
+/**
+ * A real product as the owner may see it, money in integer satang. Separate from the demo's
+ * `Product` type (whole baht, browser-only).
+ */
+export interface OwnerProduct {
+  id: string;
+  name: string;
+  sku: string;
+  category: Category;
+  description: string;
+  priceSatang: number;
+  minimumSellingPriceSatang: number;
+  costSatang?: number | undefined;
+  barcode?: string | undefined;
+  imageUrl?: string | undefined;
+  active: boolean;
+  lowStockThreshold: number;
+  variants: ProductVariant[];
+}
+
 /** A product as non-owners may see it: never includes cost. */
-export type PublicProduct = Omit<Product, "cost">;
+export type PublicProduct = Omit<OwnerProduct, "costSatang">;
 
 const isCategory = (v: string): v is Category => Object.hasOwn(CATEGORY_LABEL, v);
 const text = (max: number) => z.string().trim().min(1).max(max);
@@ -60,17 +84,17 @@ const variantInputSchema = z
   })
   .strict();
 
-// Money fields are plain numbers here so `productPricingError` produces the same messages as
-// the demo; it rejects non-integers, negatives, NaN and Infinity.
+// Money fields are plain numbers here so `productPricingErrorSatang` gives one clear message; it
+// rejects non-integers, negatives, NaN, Infinity and amounts above ฿10,000,000.00.
 export const productInputSchema = z
   .object({
     name: text(200),
     sku: skuSchema,
     category: z.string().refine(isCategory, "Unknown category."),
     description: z.string().trim().max(2000).default(""),
-    price: z.number(),
-    minimumSellingPrice: z.number(),
-    cost: z.number().optional(),
+    priceSatang: z.number(),
+    minimumSellingPriceSatang: z.number(),
+    costSatang: z.number().optional(),
     imageUrl: z.string().trim().url().startsWith("https://").max(2048).optional(),
     lowStockThreshold: count,
     variants: z.array(variantInputSchema).min(1).max(200),
@@ -83,10 +107,10 @@ export const productUpdateSchema = z
     name: text(200),
     category: z.string().refine(isCategory, "Unknown category."),
     description: z.string().trim().max(2000),
-    price: z.number(),
-    minimumSellingPrice: z.number(),
+    priceSatang: z.number(),
+    minimumSellingPriceSatang: z.number(),
     /** `null` clears the cost. */
-    cost: z.number().nullable(),
+    costSatang: z.number().nullable(),
     imageUrl: z.string().trim().url().startsWith("https://").max(2048).nullable(),
     lowStockThreshold: count,
   })
@@ -127,8 +151,8 @@ export function toPublicProduct(doc: ProductDocument): PublicProduct {
     sku: doc.sku,
     category: doc.category,
     description: doc.description,
-    price: doc.price,
-    minimumSellingPrice: doc.minimumSellingPrice,
+    priceSatang: doc.priceSatang,
+    minimumSellingPriceSatang: doc.minimumSellingPriceSatang,
     barcode: variants.length === 1 ? variants[0]?.barcode : undefined,
     imageUrl: doc.imageUrl,
     active: doc.active,
@@ -165,14 +189,14 @@ export function createProductService(conn: Connection) {
   return {
     async listProducts(opts: { includeArchived?: boolean } = {}): Promise<PublicProduct[]> {
       const filter = opts.includeArchived ? {} : { active: true };
-      const docs = await read(() => Product.find(filter).select("-cost").sort({ name: 1 }));
+      const docs = await read(() => Product.find(filter).select("-costSatang").sort({ name: 1 }));
       return docs.map(toPublicProduct);
     },
 
     async getProduct(id: unknown): Promise<PublicProduct | undefined> {
       const parsed = productIdSchema.safeParse(id);
       if (!parsed.success) return undefined;
-      const doc = await read(() => Product.findById(parsed.data).select("-cost"));
+      const doc = await read(() => Product.findById(parsed.data).select("-costSatang"));
       return doc ? toPublicProduct(doc) : undefined;
     },
 
@@ -180,18 +204,18 @@ export function createProductService(conn: Connection) {
      * OWNER-ONLY: includes cost. Not reachable from the browser. Any future server function
      * that calls this must verify an authenticated owner session first.
      */
-    async getProductForOwner(id: unknown): Promise<Product | undefined> {
+    async getProductForOwner(id: unknown): Promise<OwnerProduct | undefined> {
       const parsed = productIdSchema.safeParse(id);
       if (!parsed.success) return undefined;
-      const doc = await read(() => Product.findById(parsed.data).select("+cost"));
-      return doc ? { ...toPublicProduct(doc), cost: doc.cost } : undefined;
+      const doc = await read(() => Product.findById(parsed.data).select("+costSatang"));
+      return doc ? { ...toPublicProduct(doc), costSatang: doc.costSatang } : undefined;
     },
 
     async createProduct(input: unknown): Promise<Result<PublicProduct>> {
       const parsed = productInputSchema.safeParse(input);
       if (!parsed.success) return zodError(parsed.error);
       const p = parsed.data;
-      const pricing = productPricingError(p);
+      const pricing = productPricingErrorSatang(p);
       if (pricing) return fail(pricing);
       // Fail closed: without the unique indexes, concurrent duplicates could be stored.
       if (!(await read(() => verifyProductIndexes(conn)))) return fail(SETUP_INCOMPLETE);
@@ -202,9 +226,9 @@ export function createProductService(conn: Connection) {
           sku: p.sku,
           category: p.category,
           description: p.description,
-          price: p.price,
-          minimumSellingPrice: p.minimumSellingPrice,
-          cost: p.cost,
+          priceSatang: p.priceSatang,
+          minimumSellingPriceSatang: p.minimumSellingPriceSatang,
+          costSatang: p.costSatang,
           imageUrl: p.imageUrl,
           active: true,
           lowStockThreshold: p.lowStockThreshold,
@@ -231,15 +255,15 @@ export function createProductService(conn: Connection) {
       if (!parsed.success) return zodError(parsed.error);
       const u = parsed.data;
       // Load cost too, so the combined pricing check sees the full picture.
-      const doc = await read(() => Product.findById(parsedId.data).select("+cost"));
+      const doc = await read(() => Product.findById(parsedId.data).select("+costSatang"));
       if (!doc) return fail("Product not found.");
 
       const next = {
-        price: u.price ?? doc.price,
-        minimumSellingPrice: u.minimumSellingPrice ?? doc.minimumSellingPrice,
-        cost: u.cost === null ? undefined : (u.cost ?? doc.cost),
+        priceSatang: u.priceSatang ?? doc.priceSatang,
+        minimumSellingPriceSatang: u.minimumSellingPriceSatang ?? doc.minimumSellingPriceSatang,
+        costSatang: u.costSatang === null ? undefined : (u.costSatang ?? doc.costSatang),
       };
-      const pricing = productPricingError(next);
+      const pricing = productPricingErrorSatang(next);
       if (pricing) return fail(pricing);
 
       if (u.name !== undefined) doc.name = u.name;
@@ -247,9 +271,9 @@ export function createProductService(conn: Connection) {
       if (u.description !== undefined) doc.description = u.description;
       if (u.lowStockThreshold !== undefined) doc.lowStockThreshold = u.lowStockThreshold;
       if (u.imageUrl !== undefined) doc.imageUrl = u.imageUrl ?? undefined;
-      doc.price = next.price;
-      doc.minimumSellingPrice = next.minimumSellingPrice;
-      doc.cost = next.cost;
+      doc.priceSatang = next.priceSatang;
+      doc.minimumSellingPriceSatang = next.minimumSellingPriceSatang;
+      doc.costSatang = next.costSatang;
       try {
         // optimisticConcurrency: a concurrent save of the same product fails with VersionError.
         await doc.save();
@@ -262,7 +286,7 @@ export function createProductService(conn: Connection) {
     async setProductActive(id: unknown, active: boolean): Promise<Result<PublicProduct>> {
       const parsedId = productIdSchema.safeParse(id);
       if (!parsedId.success) return fail("Product not found.");
-      const doc = await read(() => Product.findById(parsedId.data).select("-cost"));
+      const doc = await read(() => Product.findById(parsedId.data).select("-costSatang"));
       if (!doc) return fail("Product not found.");
       doc.active = active;
       try {

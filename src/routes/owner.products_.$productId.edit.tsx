@@ -9,6 +9,8 @@
  *   (the service does not allow it); stock is never edited here.
  * - Cost stays write-only: it is never loaded into this page. Leaving the field empty keeps the
  *   stored cost; the checkbox removes it.
+ * - Amounts are typed in baht ("1800", "1,800", "1800.50") and parsed here to integer satang
+ *   without floating-point math (src/lib/money.ts); the server validates them again.
  * - After saving, router data is invalidated before returning to the list, which also loads with
  *   a blocking reload, so the old values are never shown.
  * - POST form with the button disabled until hydrated, so a native submit can never put field
@@ -23,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { getCurrentUser } from "@/lib/auth";
 import { CATEGORY_LABEL } from "@/lib/format";
+import { parseBahtToSatang, satangToInput } from "@/lib/money";
 import { getProductForEditing, updateProductForOwner } from "@/lib/products";
 import { SAFE_MESSAGES } from "@/lib/server-errors";
 
@@ -85,6 +88,12 @@ type EditableProduct = NonNullable<Awaited<ReturnType<typeof getProductForEditin
 /** Empty → NaN, which the server rejects with a clear message. */
 const toNumber = (text: string) => (text.trim() === "" ? Number.NaN : Number(text.trim()));
 
+/** Satang for a money field, or a message naming the field. */
+const money = (label: string, text: string) => {
+  const r = parseBahtToSatang(text);
+  return r.ok ? r : { ok: false as const, error: `${label}: ${r.error}` };
+};
+
 function friendly(message: string) {
   if (message === SAFE_MESSAGES.unavailable)
     return "The database cannot be reached right now. Nothing was saved. Please try again later.";
@@ -140,8 +149,8 @@ function EditForm({ product }: { product: EditableProduct }) {
   const [name, setName] = useState(product.name);
   const [category, setCategory] = useState<string>(product.category);
   const [description, setDescription] = useState(product.description);
-  const [price, setPrice] = useState(String(product.price));
-  const [minimum, setMinimum] = useState(String(product.minimumSellingPrice));
+  const [price, setPrice] = useState(satangToInput(product.priceSatang));
+  const [minimum, setMinimum] = useState(satangToInput(product.minimumSellingPriceSatang));
   const [cost, setCost] = useState("");
   const [clearCost, setClearCost] = useState(false);
   const [threshold, setThreshold] = useState(String(product.lowStockThreshold));
@@ -149,8 +158,14 @@ function EditForm({ product }: { product: EditableProduct }) {
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setBusy(true);
     setError("");
+    const priceSatang = money("Selling price", price);
+    const minimumSatang = money("Minimum price", minimum);
+    const costSatang = !clearCost && cost.trim() ? money("New cost", cost) : undefined;
+    for (const r of [priceSatang, minimumSatang, costSatang])
+      if (r && !r.ok) return setError(r.error);
+    if (!priceSatang.ok || !minimumSatang.ok || (costSatang && !costSatang.ok)) return;
+    setBusy(true);
     try {
       const result = await updateProductForOwner({
         data: {
@@ -159,10 +174,14 @@ function EditForm({ product }: { product: EditableProduct }) {
             name,
             category,
             description,
-            price: toNumber(price),
-            minimumSellingPrice: toNumber(minimum),
+            priceSatang: priceSatang.satang,
+            minimumSellingPriceSatang: minimumSatang.satang,
             // Empty: keep the stored cost. The checkbox sends `null`, which removes it.
-            ...(clearCost ? { cost: null } : cost.trim() ? { cost: toNumber(cost) } : {}),
+            ...(clearCost
+              ? { costSatang: null }
+              : costSatang
+                ? { costSatang: costSatang.satang }
+                : {}),
             lowStockThreshold: toNumber(threshold),
           },
         },
@@ -238,7 +257,7 @@ function EditForm({ product }: { product: EditableProduct }) {
           <Input
             id="ep-price"
             data-testid="ep-price"
-            inputMode="numeric"
+            inputMode="decimal"
             required
             value={price}
             onChange={(e) => setPrice(e.target.value)}
@@ -249,7 +268,7 @@ function EditForm({ product }: { product: EditableProduct }) {
           <Input
             id="ep-minimum"
             data-testid="ep-minimum"
-            inputMode="numeric"
+            inputMode="decimal"
             required
             value={minimum}
             onChange={(e) => setMinimum(e.target.value)}
@@ -260,7 +279,7 @@ function EditForm({ product }: { product: EditableProduct }) {
           <Input
             id="ep-cost"
             data-testid="ep-cost"
-            inputMode="numeric"
+            inputMode="decimal"
             autoComplete="off"
             placeholder="Leave empty to keep the stored cost"
             disabled={clearCost}

@@ -10,6 +10,9 @@
     `src/server/auth/auth.server.ts`);
   - Step 5c: the MongoDB-backed attempt limiter (`src/server/auth/login-limiter.server.ts`,
     collection `login_attempts`, atomic, TTL, fail closed).
+- **Money:** **All money is integer satang; never floats.** Every amount in this design (floats, counted cash, prices, sale and
+  refund totals) is stored as integer satang in a field named `…Satang`, parsed and shown with
+  `src/lib/money.ts` (`฿1,800.00`).
 - **Current state (VERIFIED 2026-10-31):**
   - `users.role` allows only `"owner"` (`src/server/models/user.server.ts`), and a
     `single_owner` index allows one owner.
@@ -253,10 +256,10 @@ for today." The refusal is logged.
 
 **Shift (one per till per business day, O7)**
 
-- **Open.** Records `startFloat` (whole baht, 0–20 000), who and when. A unique index on
+- **Open.** Records `startFloatSatang` (integer satang, ฿0.00–฿20,000.00), who and when. A unique index on
   `(deviceId, businessDay)` makes a second opening fail, even when two arrive at once.
 - **Close (blind).** A one-time atomic transition `open` → `closed`. It records `countedCash`
-  (whole baht, 0–1 000 000), who, when and `closedBy: "till"`.
+  (`countedCashSatang`, integer satang, ฿0.00–฿1,000,000.00), who, when and `closedBy: "till"`.
   - The response is only "closed": never the expected cash or the difference.
   - No till-reachable function computes or returns either value.
   - A second close fails.
@@ -276,7 +279,7 @@ for today." The refusal is logged.
   discount, date, employee or till field.
 - **The server sets every price** from the product at that moment and stores a price snapshot on
   each line, along with the seller, the till and the shift. Archived products cannot be sold.
-  Whole baht only (`src/lib/calc.ts`).
+  Integer satang only (`src/lib/money.ts`); line totals are integer multiplications.
 - **Stock (O11).** The sale and the stock decrements happen in **one MongoDB transaction**: the
   sale is inserted and each line's `$inc: { "variants.$.stock": -qty }` is applied. Either all of
   it happens, or nothing does.

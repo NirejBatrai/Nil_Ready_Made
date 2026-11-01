@@ -4,6 +4,65 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-11-01 — Money in integer satang
+
+**All money is integer satang; never floats.** Required before slice S9 (decision 0002).
+
+- **Money fields found** (real backend only): `price`, `minimumSellingPrice`, `cost`.
+  - These exist on the product model, the service's create/update schemas and public mapper, and
+    `getProductForOwner`; the server functions pass them through.
+  - They are used by the create and edit forms and the `/owner/products` list.
+  - They appear in the tests (`products.server`, `products-server-fns`, `auth`, `setup-indexes`,
+    E2E).
+  - No other money fields exist in the backend (no sales yet).
+  - The demo's money fields (`src/types/domain.ts`, `src/lib/calc.ts`: `price`, `unitPrice`,
+    `total`, `amount`, …) are browser-only and unchanged.
+- **Renamed** to `priceSatang`, `minimumSellingPriceSatang`, `costSatang` (integer satang;
+  ฿1,800.50 → 180050). The strict schemas reject the old names. The real backend now has its own
+  `OwnerProduct` / `PublicProduct` types instead of the demo's `Product`.
+- **`src/lib/money.ts`:**
+  - `parseBahtToSatang` accepts "1800", "1,800" and "1800.50", using string and integer
+    operations only. It rejects:
+    - more than 2 decimals;
+    - negatives;
+    - junk, wrong comma grouping, leading zeros, exponents and non-ASCII digits;
+    - anything above **฿10,000,000.00** (1 000 000 000 satang).
+  - `formatSatang` always shows **two decimals** (`฿1,800.00`, `฿1,800.50`) on every
+    real-backend page.
+  - `productPricingErrorSatang` is the server rule (whole satang, bounds, minimum ≤ price).
+  - The Mongoose schema also enforces whole satang and the bound.
+- **Forms:** the browser parses each amount and sends nothing if one is invalid, showing a
+  message such as "Selling price: Use at most 2 decimal places (satang)." The server validates
+  again. The edit form is prefilled with "1500.00".
+- **Migration:** `bun run db:migrate-money-satang` (`scripts/migrate-money-satang.ts`).
+  - Dry run by default (counts only); `--apply` writes.
+  - Each product is converted ×100 into the new fields and the old fields are removed, in one
+    atomic update per product.
+  - Idempotent: the update filter only matches products that still have an old field, so it is
+    also safe to resume after an interruption.
+  - It refuses, changing nothing, when values are not whole baht, are out of range, have a
+    minimum above the price, or when a product has old and new fields at once.
+  - It never prints product data or the connection string. Tested only against
+    mongodb-memory-server; **not run on any real database** (owner-run).
+- **Docs:** "All money is integer satang; never floats." added to ARCHITECTURE (new Money
+  section), decision 0002 (topic text only, slices unchanged), SECURITY, AGENTS.md conventions
+  and DEPLOY-VERCEL (when to run the migration).
+- **Tests:**
+  - new `money.test.ts` (12) and `migrate-money-satang.test.ts` (6);
+  - converted backend tests, plus new tests: exact storage of 180050, the ฿10,000,000.00 bound,
+    old field names rejected;
+  - E2E: create with "1,200.50" / "900.25" / cost "7,777.77" (stored 120050 / 90025 / 777777),
+    and edit to "1,800.50" / "1200.25". Shown as `฿1,800.50`; browser-side rejection of
+    "12.505", "-1", "10,000,000.01" and "1.800,50" with no request sent.
+- **Mutation checks**, each restored byte-identical and each caught by unit tests:
+  - the 2-decimal rule ("1.005" accepted as 105);
+  - fraction scaling;
+  - the migration's idempotency guard;
+  - dry-run-by-default;
+  - the migration's blocking check.
+- **Checks:** typecheck, lint (0 errors, 11 known warnings), format check, `bun run test` (291
+  passed, 46 skipped), `bun run test:e2e` (44 passed, 1 skipped).
+
 ## 2026-10-31 — Step 5c: Vercel variant for personal testing (not deployed)
 
 Decision: [0003](decisions/0003-vercel-for-personal-testing.md). Vercel Hobby is for personal,

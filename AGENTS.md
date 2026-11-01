@@ -72,8 +72,12 @@ The root `roadmap.md` is the old demo-era checklist; `docs/ROADMAP.md` supersede
   `src/lib/assert.ts`. Do not use `any`, `@ts-ignore`, or unsafe type assertions.
 - Demo screens read state via `useDemoState()` and write only through `repo` in
   `src/lib/repository`. Do not connect demo screens to MongoDB without an approved step.
-- Domain types: `src/types/domain.ts`. Money and pricing rules: `src/lib/calc.ts` (whole baht;
-  per-product minimum selling price; there is **no universal minimum price**).
+- Money (real backend): **all money is integer satang; never floats.** Fields are named
+  `…Satang` (`priceSatang`, `minimumSellingPriceSatang`, `costSatang`); parsing, display
+  (`฿1,800.00`) and the pricing rule live in `src/lib/money.ts`. Each product has its own minimum
+  selling price; there is **no universal minimum price**.
+- Demo only: domain types `src/types/domain.ts` and rules `src/lib/calc.ts` (whole baht,
+  browser-only simulation).
 - Server-only code lives in `*.server.ts` files (TanStack Start blocks browser imports of them).
   Server functions live in browser-importable files under `src/lib/` and load server-only modules
   with a dynamic `import()` inside the handler.

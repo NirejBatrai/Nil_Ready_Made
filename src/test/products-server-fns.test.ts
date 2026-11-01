@@ -116,9 +116,9 @@ const towel = (over: Record<string, unknown> = {}) => ({
   name: "Test Towel",
   sku: "LX-FN-1",
   category: "accessories",
-  price: 500,
-  minimumSellingPrice: 350,
-  cost: 200,
+  priceSatang: 50000,
+  minimumSellingPriceSatang: 35000,
+  costSatang: 20000,
   lowStockThreshold: 2,
   variants: [{ sku: "LX-FN-1" }],
   ...over,
@@ -130,7 +130,7 @@ async function created(over: Record<string, unknown> = {}) {
   return r.data;
 }
 
-const stored = (id: string) => productModel(conn).findById(id).select("+cost").lean();
+const stored = (id: string) => productModel(conn).findById(id).select("+costSatang").lean();
 
 beforeAll(async () => {
   server = await MongoMemoryServer.create();
@@ -217,15 +217,15 @@ describe("getProductForEditing", () => {
   it("returns the product without cost; unknown or malformed ids give null", async () => {
     const p = await created();
     const { result } = await call(getProductForEditing, p.id);
-    expect(result).toMatchObject({ id: p.id, name: "Test Towel", price: 500 });
-    expect(JSON.stringify(result)).not.toContain('"cost"');
+    expect(result).toMatchObject({ id: p.id, name: "Test Towel", priceSatang: 50000 });
+    expect(JSON.stringify(result)).not.toMatch(/"cost/);
     for (const id of ["prd_missing", "nope", { $ne: null }, 42])
       expect((await call(getProductForEditing, id)).result).toBeNull();
   });
 });
 
 describe("updateProductForOwner: the server re-validates everything", () => {
-  it("saves allowed fields (whole baht) and never returns cost", async () => {
+  it("saves allowed fields (integer satang) and never returns cost", async () => {
     const p = await created();
     const { result, error } = await call(updateProductForOwner, {
       id: p.id,
@@ -233,21 +233,21 @@ describe("updateProductForOwner: the server re-validates everything", () => {
         name: " Linen Towel ",
         category: "bags",
         description: "Soft",
-        price: 650,
-        minimumSellingPrice: 400,
-        cost: 250,
+        priceSatang: 65000,
+        minimumSellingPriceSatang: 40000,
+        costSatang: 25000,
         lowStockThreshold: 5,
       },
     });
     expect(error).toBeUndefined();
-    expect(result).toMatchObject({ ok: true, data: { name: "Linen Towel", price: 650 } });
-    expect(JSON.stringify(result)).not.toContain('"cost"');
+    expect(result).toMatchObject({ ok: true, data: { name: "Linen Towel", priceSatang: 65000 } });
+    expect(JSON.stringify(result)).not.toMatch(/"cost/);
     expect(await stored(p.id)).toMatchObject({
       name: "Linen Towel",
       category: "bags",
-      price: 650,
-      minimumSellingPrice: 400,
-      cost: 250,
+      priceSatang: 65000,
+      minimumSellingPriceSatang: 40000,
+      costSatang: 25000,
       lowStockThreshold: 5,
     });
   });
@@ -255,20 +255,29 @@ describe("updateProductForOwner: the server re-validates everything", () => {
   it("an omitted cost keeps the stored one; null removes it", async () => {
     const p = await created();
     await call(updateProductForOwner, { id: p.id, update: { name: "Kept" } });
-    expect((await stored(p.id))?.cost).toBe(200);
-    await call(updateProductForOwner, { id: p.id, update: { cost: null } });
-    expect((await stored(p.id))?.cost).toBeUndefined();
+    expect((await stored(p.id))?.costSatang).toBe(20000);
+    await call(updateProductForOwner, { id: p.id, update: { costSatang: null } });
+    expect((await stored(p.id))?.costSatang).toBeUndefined();
   });
 
   it.each([
-    [{ price: 300 }, "Minimum selling price cannot be higher than the selling price."],
-    [{ price: 12.5 }, "Selling price must be a whole number of baht greater than zero."],
-    [{ price: Number.NaN }, "price: Expected number, received nan"], // an empty form field
+    [{ priceSatang: 30000 }, "Minimum selling price cannot be higher than the selling price."],
     [
-      { minimumSellingPrice: -1 },
-      "Minimum selling price must be a whole number of baht, 0 or more.",
+      { priceSatang: 12.5 },
+      "Selling price must be more than ฿0.00 and at most ฿10,000,000.00, in whole satang.",
     ],
-    [{ cost: 1.5 }, "Cost must be a whole number of baht, 0 or more."],
+    [{ priceSatang: Number.NaN }, "priceSatang: Expected number, received nan"],
+    [
+      { priceSatang: 1_000_000_001 },
+      /^Selling price must be more than ฿0\.00 and at most ฿10,000,000\.00/,
+    ],
+    [{ costSatang: 1_000_000_001 }, /^Cost must be ฿0\.00 to ฿10,000,000\.00/],
+    [{ price: 650 }, /Unrecognized key/], // old whole-baht names are never accepted
+    [
+      { minimumSellingPriceSatang: -100 },
+      "Minimum selling price must be ฿0.00 to ฿10,000,000.00, in whole satang.",
+    ],
+    [{ costSatang: 1.5 }, "Cost must be ฿0.00 to ฿10,000,000.00, in whole satang."],
     [{ name: "   " }, /^name: /],
     [{ category: "weapons" }, "category: Unknown category."],
     [{ lowStockThreshold: -2 }, /^lowStockThreshold: /],
@@ -311,8 +320,11 @@ describe("updateProductForOwner: the server re-validates everything", () => {
   it("simultaneous edits: overlapping saves are refused with the reload message, never merged", async () => {
     const p = await created();
     const results = await Promise.all(
-      [600, 700, 800, 900, 1000].map(async (price) => {
-        const { result } = await call(updateProductForOwner, { id: p.id, update: { price } });
+      [60000, 70000, 80000, 90000, 100000].map(async (priceSatang) => {
+        const { result } = await call(updateProductForOwner, {
+          id: p.id,
+          update: { priceSatang },
+        });
         return result;
       }),
     );
@@ -325,7 +337,7 @@ describe("updateProductForOwner: the server re-validates everything", () => {
           error: "This product was changed at the same time. Reload it and try again.",
         });
     const final = await stored(p.id);
-    expect([600, 700, 800, 900, 1000]).toContain(final?.price);
+    expect([60000, 70000, 80000, 90000, 100000]).toContain(final?.priceSatang);
   });
 });
 
@@ -340,14 +352,14 @@ describe("archive and restore (no delete)", () => {
 
     const archived = await call(archiveProductForOwner, hat.id);
     expect(archived.result).toMatchObject({ ok: true, data: { id: hat.id, active: false } });
-    expect(JSON.stringify(archived.result)).not.toContain('"cost"');
+    expect(JSON.stringify(archived.result)).not.toMatch(/"cost/);
     expect(await names({})).toEqual([towelP.name]);
     // Anything other than exactly { includeArchived: true } means active only.
     for (const data of [undefined, null, { includeArchived: "true" }, { includeArchived: 1 }])
       expect(await names(data)).toEqual([towelP.name]);
     expect(await names({ includeArchived: true })).toEqual(["Sun Hat", "Test Towel"]);
     expect(await productModel(conn).countDocuments()).toBe(2);
-    expect((await stored(hat.id))?.cost).toBe(200);
+    expect((await stored(hat.id))?.costSatang).toBe(20000);
 
     const restored = await call(restoreProductForOwner, hat.id);
     expect(restored.result).toMatchObject({ ok: true, data: { active: true } });

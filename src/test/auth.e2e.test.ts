@@ -255,9 +255,9 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         name: "E2E Towel",
         sku: "LX-E2E-1",
         category: "accessories",
-        price: 500,
-        minimumSellingPrice: 350,
-        cost: 200,
+        priceSatang: 50000,
+        minimumSellingPriceSatang: 35000,
+        costSatang: 20000,
         lowStockThreshold: 1,
         variants: [{ sku: "LX-E2E-1" }],
       });
@@ -353,7 +353,10 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
 
     it("signed in: who-am-I returns name and role only; owner data includes cost", async () => {
       expect(JSON.parse(await act("whoami"))).toEqual({ name: "E2E Owner", role: "owner" });
-      expect(JSON.parse(await act("owner-product"))).toMatchObject({ id: productId, cost: 200 });
+      expect(JSON.parse(await act("owner-product"))).toMatchObject({
+        id: productId,
+        costSatang: 20000,
+      });
       await page.getByTestId("product-id").fill("not-an-id");
       expect(await act("owner-product")).toBe("null");
       await page.getByTestId("product-id").fill(productId);
@@ -370,7 +373,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       const same = await replay(req, { origin: "same", cookie: token });
       expect(same.status).toBe(200);
       expectSecured(same.headers, "owner server function");
-      expect(same.text).toContain('"cost"'); // owner data, delivered only to the same-origin request
+      expect(same.text).toContain('"costSatang"'); // owner data, delivered only to the same-origin request
       // Login itself is also protected against cross-site posts.
       await signIn(EMAIL, "wrong-password-1");
       const loginReq = requests.filter((r) => r.method === "POST").at(-1);
@@ -386,7 +389,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       expect(await sessionCookie()).toBeUndefined();
       const replayed = await replay(req, { origin: "same", cookie: token });
       expect(replayed.text).toContain("Not signed in.");
-      expect(replayed.text).not.toContain('"cost"');
+      expect(replayed.text).not.toContain('"cost');
       expect(await act("owner-product")).toBe("error: Not signed in.");
     });
 
@@ -439,7 +442,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       expect(page0.match(/<button[^>]*data-testid="login-submit"[^>]*>/)?.[0]).toMatch(
         /\sdisabled=""/,
       );
-      for (const secret of ['"cost"', productId, "E2E Towel", EMAIL, PASSWORD, COOKIE])
+      for (const secret of ['"cost', productId, "E2E Towel", EMAIL, PASSWORD, COOKIE])
         expect(page0).not.toContain(secret);
     });
 
@@ -488,7 +491,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
     describe("/owner/products", () => {
       const SECOND = "E2E Sun Hat";
       const ARCHIVED = "E2E Archived Bag";
-      const SECRET_COST = 4321; // distinctive, so any leak of a cost value is detectable
+      const SECRET_COST = 432_109; // satang (฿4,321.09); distinctive, so any leak is detectable
 
       beforeAll(async () => {
         if (!conn) throw new Error("no test db");
@@ -497,9 +500,9 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
           name: SECOND,
           sku: "LX-E2E-2",
           category: "accessories",
-          price: 790,
-          minimumSellingPrice: 590,
-          cost: SECRET_COST,
+          priceSatang: 79000,
+          minimumSellingPriceSatang: 59000,
+          costSatang: SECRET_COST,
           lowStockThreshold: 1,
           variants: [{ sku: "LX-E2E-2" }],
         });
@@ -507,9 +510,9 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
           name: ARCHIVED,
           sku: "LX-E2E-3",
           category: "bags",
-          price: 990,
-          minimumSellingPrice: 890,
-          cost: SECRET_COST,
+          priceSatang: 99000,
+          minimumSellingPriceSatang: 89000,
+          costSatang: SECRET_COST,
           lowStockThreshold: 1,
           variants: [{ sku: "LX-E2E-3" }],
         });
@@ -574,12 +577,12 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         const towel = loginPage.locator('[data-testid="product-row"]', { hasText: "E2E Towel" });
         // Columns: name, SKU, category, price, minimum, stock, status. New products start at 0.
         expect((await towel.locator("td").allTextContents()).slice(3, 6)).toEqual([
-          "฿500",
-          "฿350",
+          "฿500.00",
+          "฿350.00",
           "0",
         ]);
         const content = await loginPage.content();
-        for (const leak of ['"cost"', String(SECRET_COST), "฿200", ARCHIVED])
+        for (const leak of ['"cost', String(SECRET_COST), "฿200.00", ARCHIVED])
           expect(content).not.toContain(leak);
         const token = (await sessionCookie())?.value ?? "";
         const ssr = await html("/owner/products", token);
@@ -591,7 +594,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         await owned.text();
         expect(owned.status).toBe(200);
         expectSecured(owned.headers, "signed-in /owner/products");
-        for (const leak of ['"cost"', String(SECRET_COST), ARCHIVED])
+        for (const leak of ['"cost', String(SECRET_COST), ARCHIVED])
           expect(ssr).not.toContain(leak);
       });
 
@@ -605,7 +608,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         const owner = await replay(req, { origin: "same", cookie: token });
         expect(owner.text).toContain(SECOND);
         expectSecured(owner.headers, "listProductsForOwner");
-        expect(owner.text).not.toContain('"cost"');
+        expect(owner.text).not.toContain('"cost');
         const anonymous = await replay(req, { origin: "same" });
         expect(anonymous.text).toContain("Not signed in.");
         expect(anonymous.text).not.toContain(SECOND);
@@ -642,7 +645,8 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
 
     // ---- /owner/products/new (real-owner-only product creation) ----
     describe("/owner/products/new", () => {
-      const SECRET_COST = "7777"; // distinctive, so any leak of the cost value is detectable
+      const SECRET_COST = "7,777.77"; // typed; stored as 777777 satang; distinctive for leak checks
+      const SECRET_COST_SATANG = 777_777;
       let createRequest: (typeof requests)[number] | undefined;
 
       const goToForm = async () => {
@@ -699,7 +703,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         expect(page0.match(/<button[^>]*data-testid="np-submit"[^>]*>/)?.[0]).toMatch(
           /\sdisabled=""/,
         );
-        expect(page0).not.toContain('"cost"');
+        expect(page0).not.toContain('"cost');
       });
 
       it("creates a multi-variant product: normalized SKUs/barcode, stock 0, cost stored but never returned", async () => {
@@ -723,8 +727,8 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         await fillBasics({
           name: "E2E Linen Shirt",
           sku: " lx-e2e-new ",
-          price: "1200",
-          minimum: "900",
+          price: "1,200.50",
+          minimum: "900.25",
         });
         await loginPage.getByTestId("np-category").selectOption("dresses");
         await loginPage.getByTestId("np-cost").fill(SECRET_COST);
@@ -755,26 +759,33 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         expect((await row.locator("td").allTextContents()).slice(1, 6)).toEqual([
           "LX-E2E-NEW",
           "Dresses",
-          "฿1,200",
-          "฿900",
+          "฿1,200.50",
+          "฿900.25",
           "0",
         ]);
         if (!conn) throw new Error("no test db");
         const stored = await productModel(conn)
           .findOne({ sku: "LX-E2E-NEW" })
-          .select("+cost")
+          .select("+costSatang")
           .lean();
-        expect(stored?.cost).toBe(Number(SECRET_COST));
+        // Integer satang, exact: no floating-point drift from the decimals typed.
+        expect(stored).toMatchObject({
+          priceSatang: 120_050,
+          minimumSellingPriceSatang: 90_025,
+          costSatang: SECRET_COST_SATANG,
+        });
+        expect(stored && "price" in stored).toBe(false);
         expect(stored?.variants.map((v) => [v.sku, v.barcode, v.openingStock, v.stock])).toEqual([
           ["LX-E2E-NEW-S", "ABC12345", 0, 0],
           ["LX-E2E-NEW-M", undefined, 0, 0],
         ]);
         // Nothing the browser received since submitting contains the cost.
         for (const body of responses.slice(firstResponse)) {
-          expect(body).not.toContain(SECRET_COST);
-          expect(body).not.toContain('"cost"');
+          for (const leak of [SECRET_COST, "7777.77", String(SECRET_COST_SATANG), '"cost'])
+            expect(body).not.toContain(leak);
         }
-        expect(await loginPage.content()).not.toContain(SECRET_COST);
+        expect(await loginPage.content()).not.toContain(String(SECRET_COST_SATANG));
+        expect(await loginPage.content()).not.toContain("7,777.77");
       });
 
       it("invalid input shows the right message and saves nothing", async () => {
@@ -784,10 +795,23 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         expect(await submitAndReadError()).toBe(
           "Minimum selling price cannot be higher than the selling price.",
         );
-        await fillBasics({ name: "Bad", sku: "LX-E2E-BAD", price: "12.5", minimum: "0" });
+        // Checked in the browser before anything is sent (the server checks satang again).
+        const sentBefore = requests.length;
+        await fillBasics({ name: "Bad", sku: "LX-E2E-BAD", price: "12.505", minimum: "0" });
         expect(await submitAndReadError()).toBe(
-          "Selling price must be a whole number of baht greater than zero.",
+          "Selling price: Use at most 2 decimal places (satang).",
         );
+        await fillBasics({ name: "Bad", sku: "LX-E2E-BAD", price: "500", minimum: "-1" });
+        expect(await submitAndReadError()).toBe("Minimum price: The amount cannot be negative.");
+        await fillBasics({ name: "Bad", sku: "LX-E2E-BAD", price: "10,000,000.01", minimum: "0" });
+        expect(await submitAndReadError()).toBe(
+          "Selling price: The amount is too large (maximum ฿10,000,000.00).",
+        );
+        await fillBasics({ name: "Bad", sku: "LX-E2E-BAD", price: "1.800,50", minimum: "0" });
+        expect(await submitAndReadError()).toBe(
+          "Selling price: Enter an amount like 1800, 1,800 or 1800.50.",
+        );
+        expect(requests.length).toBe(sentBefore);
         await fillBasics({ name: "Bad", sku: "LX-E2E-BAD", price: "500", minimum: "300" });
         await variant(1, "barcode").fill("88-50");
         expect(await submitAndReadError()).toMatch(/Barcode must be 4–64 letters or digits/);
@@ -887,7 +911,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
 
     // ---- /owner/products: edit, archive, restore (real-owner-only; there is no delete) ----
     describe("/owner/products edit and archive", () => {
-      const SECRET_COST = 3333; // distinctive, so any leak of the cost value is detectable
+      const SECRET_COST = 333_333; // satang (฿3,333.33); distinctive, so any leak is detectable
       let robeId = "";
       let scarfId = "";
 
@@ -895,7 +919,7 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         loginPage.locator('[data-testid="product-row"]', { hasText: name });
       const stored = (id: string) => {
         if (!conn) throw new Error("no test db");
-        return productModel(conn).findById(id).select("+cost").lean();
+        return productModel(conn).findById(id).select("+costSatang").lean();
       };
       /** Records, from now on, whether any element matching `selector` ever renders `text`. */
       const watchFor = (selector: string, text: string) =>
@@ -932,9 +956,9 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
           name: "E2E Robe",
           sku: "LX-E2E-ROBE",
           category: "accessories",
-          price: 1500,
-          minimumSellingPrice: 1000,
-          cost: SECRET_COST,
+          priceSatang: 150000,
+          minimumSellingPriceSatang: 100000,
+          costSatang: SECRET_COST,
           lowStockThreshold: 1,
           variants: [{ sku: "LX-E2E-ROBE" }],
         });
@@ -942,8 +966,8 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
           name: "E2E Scarf",
           sku: "LX-E2E-SCARF",
           category: "accessories",
-          price: 690,
-          minimumSellingPrice: 490,
+          priceSatang: 69000,
+          minimumSellingPriceSatang: 49000,
           lowStockThreshold: 1,
           variants: [{ sku: "LX-E2E-SCARF" }],
         });
@@ -975,8 +999,8 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         expect(await loginPage.getByTestId("ep-name").inputValue()).toBe("E2E Robe");
         expect(await loginPage.getByTestId("ep-sku").inputValue()).toBe("LX-E2E-ROBE");
         expect(await loginPage.getByTestId("ep-sku").isDisabled()).toBe(true);
-        expect(await loginPage.getByTestId("ep-price").inputValue()).toBe("1500");
-        expect(await loginPage.getByTestId("ep-minimum").inputValue()).toBe("1000");
+        expect(await loginPage.getByTestId("ep-price").inputValue()).toBe("1500.00");
+        expect(await loginPage.getByTestId("ep-minimum").inputValue()).toBe("1000.00");
         expect(await loginPage.getByTestId("ep-cost").inputValue()).toBe("");
         expect(await loginPage.content()).not.toContain(String(SECRET_COST));
         const ssr = await html(`/owner/products/${robeId}/edit`, (await sessionCookie())?.value);
@@ -988,8 +1012,8 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
 
         await loginPage.getByTestId("ep-name").fill("E2E Kimono");
         await loginPage.getByTestId("ep-category").selectOption("dresses");
-        await loginPage.getByTestId("ep-price").fill("1800");
-        await loginPage.getByTestId("ep-minimum").fill("1200");
+        await loginPage.getByTestId("ep-price").fill("1,800.50");
+        await loginPage.getByTestId("ep-minimum").fill("1200.25");
         await arm();
         await loginPage.getByTestId("ep-submit").click();
         await loginPage.waitForURL(`${base}/owner/products`);
@@ -999,20 +1023,20 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
           "E2E Kimono",
           "LX-E2E-ROBE",
           "Dresses",
-          "฿1,800",
-          "฿1,200",
+          "฿1,800.50",
+          "฿1,200.25",
         ]);
-        // Whole baht are stored as integers; an empty cost field kept the stored cost.
+        // Stored as integer satang; an empty cost field kept the stored cost.
         expect(await stored(robeId)).toMatchObject({
           name: "E2E Kimono",
           category: "dresses",
-          price: 1800,
-          minimumSellingPrice: 1200,
-          cost: SECRET_COST,
+          priceSatang: 180_050,
+          minimumSellingPriceSatang: 120_025,
+          costSatang: SECRET_COST,
         });
         for (const body of responses.slice(firstResponse)) {
           expect(body).not.toContain(String(SECRET_COST));
-          expect(body).not.toContain('"cost"');
+          expect(body).not.toContain('"cost');
         }
       });
 
@@ -1027,10 +1051,12 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
           "Minimum selling price cannot be higher than the selling price.",
         );
         await loginPage.getByTestId("ep-minimum").fill("1200");
-        await loginPage.getByTestId("ep-price").fill("99.5");
+        await loginPage.getByTestId("ep-price").fill("99.505");
         await loginPage.getByTestId("ep-submit").click();
         await loginPage.waitForFunction(() =>
-          document.querySelector('[data-testid="ep-error"]')?.textContent?.includes("whole number"),
+          document
+            .querySelector('[data-testid="ep-error"]')
+            ?.textContent?.includes("Use at most 2 decimal places"),
         );
         expect(await stored(robeId)).toEqual(before);
       });

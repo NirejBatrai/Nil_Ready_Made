@@ -5,6 +5,8 @@
  * - The server enforces everything: `createProductForOwner` runs `requireOwner` on every request
  *   and validates all fields; the guard below only redirects signed-out visitors.
  * - Cost is optional and write-only: sent once, stored, never shown or returned afterwards.
+ * - Amounts are typed in baht ("1800", "1,800", "1800.50") and parsed here to integer satang
+ *   without floating-point math (src/lib/money.ts); the server validates them again.
  * - Stock cannot be entered; every variant starts at 0.
  * - POST form with the button disabled until hydrated, so a native submit can never put field
  *   values into a URL.
@@ -18,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { getCurrentUser } from "@/lib/auth";
 import { CATEGORY_LABEL } from "@/lib/format";
+import { parseBahtToSatang } from "@/lib/money";
 import { createProductForOwner } from "@/lib/products";
 import { SAFE_MESSAGES } from "@/lib/server-errors";
 
@@ -47,6 +50,12 @@ const emptyVariant = (): VariantRow => ({ sku: "", size: "", color: "", barcode:
 
 /** Empty → NaN, which the server rejects with a clear message. */
 const toNumber = (text: string) => (text.trim() === "" ? Number.NaN : Number(text.trim()));
+
+/** Satang for a money field, or a message naming the field. */
+const money = (label: string, text: string) => {
+  const r = parseBahtToSatang(text);
+  return r.ok ? r : { ok: false as const, error: `${label}: ${r.error}` };
+};
 const optional = (key: string, value: string) => (value.trim() ? { [key]: value.trim() } : {});
 
 function friendly(message: string) {
@@ -79,8 +88,14 @@ function NewProduct() {
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setBusy(true);
     setError("");
+    const priceSatang = money("Selling price", price);
+    const minimumSatang = money("Minimum price", minimum);
+    const costSatang = cost.trim() ? money("Cost", cost) : undefined;
+    for (const r of [priceSatang, minimumSatang, costSatang])
+      if (r && !r.ok) return setError(r.error);
+    if (!priceSatang.ok || !minimumSatang.ok || (costSatang && !costSatang.ok)) return;
+    setBusy(true);
     try {
       const result = await createProductForOwner({
         data: {
@@ -88,9 +103,9 @@ function NewProduct() {
           sku,
           category,
           description,
-          price: toNumber(price),
-          minimumSellingPrice: toNumber(minimum),
-          ...(cost.trim() ? { cost: toNumber(cost) } : {}),
+          priceSatang: priceSatang.satang,
+          minimumSellingPriceSatang: minimumSatang.satang,
+          ...(costSatang ? { costSatang: costSatang.satang } : {}),
           lowStockThreshold: toNumber(threshold),
           variants: variants.map((v, i) => ({
             // A single variant with no SKU of its own uses the product SKU.
@@ -184,7 +199,7 @@ function NewProduct() {
               <Input
                 id="np-price"
                 data-testid="np-price"
-                inputMode="numeric"
+                inputMode="decimal"
                 required
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
@@ -195,7 +210,7 @@ function NewProduct() {
               <Input
                 id="np-minimum"
                 data-testid="np-minimum"
-                inputMode="numeric"
+                inputMode="decimal"
                 required
                 value={minimum}
                 onChange={(e) => setMinimum(e.target.value)}
@@ -206,7 +221,7 @@ function NewProduct() {
               <Input
                 id="np-cost"
                 data-testid="np-cost"
-                inputMode="numeric"
+                inputMode="decimal"
                 autoComplete="off"
                 value={cost}
                 onChange={(e) => setCost(e.target.value)}

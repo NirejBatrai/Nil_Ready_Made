@@ -66,7 +66,8 @@ src/
     products.ts           Server functions: get/list/create/edit/archive/restore products (owner only)
     server-errors.ts      safeErrors middleware + toSafeError
     db-health.ts          getDatabaseHealth (dev-only diagnostic)
-    calc.ts               Money/pricing rules shared by demo and server
+    money.ts              REAL backend money: integer satang parser, ฿1,800.00 display, pricing rule
+    calc.ts               DEMO money/pricing rules (whole baht); not used by the real backend
     repository/           DEMO data layer (localStorage) — not the real backend
   server/                 SERVER-ONLY (*.server.ts; blocked from browser bundles)
     db.server.ts          Connection access (runtime MONGODB_URI, sanitized errors)
@@ -159,22 +160,38 @@ Details and parameters: [SECURITY.md](SECURITY.md).
 
 ## Database models (VERIFIED)
 
-| Collection       | Model file                       | Key points                                                                                                                                                                                                     |
-| ---------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `users`          | `models/user.server.ts`          | `role` enum is `owner` only; `passwordHash` `select:false`; unique email; `single_owner` partial unique index                                                                                                  |
-| `login_attempts` | `models/login-attempt.server.ts` | `_id` = `<kind>\|<key>`; `entries` (attempt id + time) inside the window; `expiresAt` with TTL index `login_attempt_expiry`; written only by atomic updates in `login-limiter.server.ts`                       |
-| `sessions`       | `models/session.server.ts`       | `_id` = SHA-256 of token; `expiresAt` with TTL cleanup index; `userId` index; optional `createdIp`, `userAgent` (≤ 256), `lastSeenAt`; at most 5 per user                                                      |
-| `products`       | `models/product.server.ts`       | Whole-baht money; per-product `minimumSellingPrice`; `cost` `select:false`; embedded variants (`sku`, `barcode`, `openingStock`, `stock`); optimistic concurrency; query updates touching pricing are rejected |
+| Collection       | Model file                       | Key points                                                                                                                                                                                                                                                            |
+| ---------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `users`          | `models/user.server.ts`          | `role` enum is `owner` only; `passwordHash` `select:false`; unique email; `single_owner` partial unique index                                                                                                                                                         |
+| `login_attempts` | `models/login-attempt.server.ts` | `_id` = `<kind>\|<key>`; `entries` (attempt id + time) inside the window; `expiresAt` with TTL index `login_attempt_expiry`; written only by atomic updates in `login-limiter.server.ts`                                                                              |
+| `sessions`       | `models/session.server.ts`       | `_id` = SHA-256 of token; `expiresAt` with TTL cleanup index; `userId` index; optional `createdIp`, `userAgent` (≤ 256), `lastSeenAt`; at most 5 per user                                                                                                             |
+| `products`       | `models/product.server.ts`       | Integer-satang money (`priceSatang`, per-product `minimumSellingPriceSatang`, `costSatang` `select:false`, each ≤ ฿10,000,000.00); embedded variants (`sku`, `barcode`, `openingStock`, `stock`); optimistic concurrency; query updates touching pricing are rejected |
 
 Product indexes (case-insensitive collation `{ locale: "en", strength: 2 }`, all unique):
 `product_sku_unique_ci`, `variant_sku_unique_ci`, `variant_barcode_unique_ci` (partial). They
 are created **only** by `bun run db:setup-indexes`; requests never create indexes.
 
+## Money
+
+**All money is integer satang; never floats.**
+
+- Fields carry the unit in their name (`priceSatang`, `minimumSellingPriceSatang`,
+  `costSatang`), so values stored before 2026-11-01 (whole baht in `price`,
+  `minimumSellingPrice`, `cost`) can never be read as satang. The strict schemas reject the old
+  names. `bun run db:migrate-money-satang` (owner-run; dry run by default, `--apply` to write)
+  converts them ×100 and removes the old fields, idempotently.
+- Input: the owner forms parse the typed string ("1800", "1,800", "1800.50") with
+  `parseBahtToSatang` (string and integer operations only; at most 2 decimals; no negatives;
+  at most ฿10,000,000.00). The server re-checks every amount with `productPricingErrorSatang`
+  (whole satang, bounds, minimum ≤ price) and the Mongoose schema.
+- Display: `formatSatang`, always two decimals (`฿1,800.00`, `฿1,800.50`).
+- The demo (`src/lib/calc.ts`, `src/types/domain.ts`) keeps whole baht in the browser only.
+
 ## Data flow: creating a product
 
 Browser form (`/owner/products/new`) → `createProductForOwner` (POST; CSRF check;
 `safeErrors` → `requireOwner`) → `createProductService(conn).createProduct(input)`:
-Zod strict parse (normalizes SKU/barcode, rejects unknown/stock fields) → `productPricingError`
+Zod strict parse (normalizes SKU/barcode, rejects unknown/stock fields) → `productPricingErrorSatang`
 → `verifyProductIndexes` (fail closed) → Mongoose `create` (schema validation; unique indexes
 decide duplicates, including concurrent ones) → cost-free `PublicProduct` returned.
 

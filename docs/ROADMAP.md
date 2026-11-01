@@ -4,7 +4,7 @@ Status labels: **DONE** (verified in code/tests), **PENDING** (not started), **P
 (discussed, not approved). Every new phase or sub-step needs the owner's **explicit approval**
 before implementation, even if it is listed here. Approval of one step does not approve the next.
 
-_Last updated 2026-10-31._ This file supersedes the root `roadmap.md` (demo-era checklist).
+_Last updated 2026-11-01._ This file supersedes the root `roadmap.md` (demo-era checklist).
 
 **Runtime target: a Node.js server** (Node LTS), not Cloudflare Workers. See
 [decisions/0001-runtime-node-not-workers.md](decisions/0001-runtime-node-not-workers.md).
@@ -31,6 +31,7 @@ Workers-specific statements elsewhere in the docs are historical.
 
 | Step 7a — session hardening: revoke all sessions, "Sign out everywhere", old session deleted at login, 5-session cap, `createdIp`/`userAgent`/`lastSeenAt` | DONE | Committed 2026-10-28 |
 | Step 5b — build target Nitro `node-server`; static-file headers from a `nitro.config.ts` route rule (`public/_headers` removed) | DONE | Committed 2026-10-28 |
+| Money in integer satang (`…Satang` fields, string parser, ฿1,800.00 display, owner-run `db:migrate-money-satang`); required before slice S9 | DONE | Committed 2026-11-01; migration not run on any real database |
 | Step 5c — Vercel variant for personal testing (decision 0003): `x-vercel-forwarded-for` on Vercel only, login limits in MongoDB (TTL, fail closed), `vercel` build preset with static-file headers | DONE (not deployed) | Committed 2026-10-31; deploy = owner's [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md) |
 | Product edit and archive UI — `/owner/products/$productId/edit`, archive (confirmation) / restore, Archived view; owner-only server functions; no delete | DONE | Committed 2026-10-31 |
 | Step 4 — time-boxed Workers runtime test (local workerd, branch `spike/workers-runtime`, not merged) | DONE | Result: move to a Node server, [decision 0001](decisions/0001-runtime-node-not-workers.md) |

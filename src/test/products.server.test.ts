@@ -44,9 +44,9 @@ const towel = (over: Record<string, unknown> = {}) => ({
   name: "Test Towel",
   sku: "LX-TST-1",
   category: "accessories" as const,
-  price: 500,
-  minimumSellingPrice: 350,
-  cost: 200,
+  priceSatang: 50000,
+  minimumSellingPriceSatang: 35000,
+  costSatang: 20000,
   lowStockThreshold: 2,
   variants: [{ sku: "LX-TST-1" }],
   ...over,
@@ -62,7 +62,7 @@ describe("create: per-product pricing rule enforced on the server", () => {
   it("creates a valid product, generates ids, and every variant starts with stock 0", async () => {
     const p = await created({ variants: [{ sku: "LX-TST-1" }, { sku: "LX-TST-2", size: "M" }] });
     expect(p.id).toMatch(/^prd_[0-9a-f-]{36}$/);
-    expect(p).toMatchObject({ price: 500, minimumSellingPrice: 350, active: true });
+    expect(p).toMatchObject({ priceSatang: 50000, minimumSellingPriceSatang: 35000, active: true });
     expect(p.variants).toEqual([
       expect.objectContaining({ productId: p.id, sku: "LX-TST-1", openingStock: 0, stock: 0 }),
       expect.objectContaining({ productId: p.id, sku: "LX-TST-2", openingStock: 0, stock: 0 }),
@@ -73,58 +73,90 @@ describe("create: per-product pricing rule enforced on the server", () => {
   it("there is no universal ฿350 minimum: cheap products with their own minimum are valid", async () => {
     const pouch = await created({
       sku: "LX-OTH-1",
-      price: 190,
-      minimumSellingPrice: 150,
+      priceSatang: 19000,
+      minimumSellingPriceSatang: 15000,
       variants: [{ sku: "LX-OTH-1" }],
     });
-    expect(pouch.minimumSellingPrice).toBe(150);
+    expect(pouch.minimumSellingPriceSatang).toBe(15000);
     const fixed = await created({
       sku: "LX-OTH-2",
-      price: 250,
-      minimumSellingPrice: 250,
+      priceSatang: 25000,
+      minimumSellingPriceSatang: 25000,
       variants: [{ sku: "LX-OTH-2" }],
     });
-    expect(fixed.minimumSellingPrice).toBe(250);
+    expect(fixed.minimumSellingPriceSatang).toBe(25000);
     const noFloor = await created({
       sku: "LX-OTH-3",
-      price: 99,
-      minimumSellingPrice: 0,
+      priceSatang: 9900,
+      minimumSellingPriceSatang: 0,
       variants: [{ sku: "LX-OTH-3" }],
     });
-    expect(noFloor.minimumSellingPrice).toBe(0);
+    expect(noFloor.minimumSellingPriceSatang).toBe(0);
   });
 
   it.each([
     [
-      { minimumSellingPrice: 501 },
+      { minimumSellingPriceSatang: 50100 },
       "Minimum selling price cannot be higher than the selling price.",
     ],
-    [{ price: 0 }, "Selling price must be a whole number of baht greater than zero."],
-    [{ price: -5 }, "Selling price must be a whole number of baht greater than zero."],
-    [{ price: 499.99 }, "Selling price must be a whole number of baht greater than zero."],
     [
-      { price: Number.POSITIVE_INFINITY },
-      "Selling price must be a whole number of baht greater than zero.",
+      { priceSatang: 0 },
+      "Selling price must be more than ฿0.00 and at most ฿10,000,000.00, in whole satang.",
     ],
     [
-      { minimumSellingPrice: -1 },
-      "Minimum selling price must be a whole number of baht, 0 or more.",
+      { priceSatang: -500 },
+      "Selling price must be more than ฿0.00 and at most ฿10,000,000.00, in whole satang.",
     ],
     [
-      { minimumSellingPrice: 349.5 },
-      "Minimum selling price must be a whole number of baht, 0 or more.",
+      { priceSatang: 499.99 },
+      "Selling price must be more than ฿0.00 and at most ฿10,000,000.00, in whole satang.",
     ],
-    [{ cost: -1 }, "Cost must be a whole number of baht, 0 or more."],
-    [{ cost: 12.5 }, "Cost must be a whole number of baht, 0 or more."],
+    [
+      { priceSatang: Number.POSITIVE_INFINITY },
+      "Selling price must be more than ฿0.00 and at most ฿10,000,000.00, in whole satang.",
+    ],
+    [
+      { minimumSellingPriceSatang: -100 },
+      "Minimum selling price must be ฿0.00 to ฿10,000,000.00, in whole satang.",
+    ],
+    [
+      { minimumSellingPriceSatang: 349.5 },
+      "Minimum selling price must be ฿0.00 to ฿10,000,000.00, in whole satang.",
+    ],
+    [{ costSatang: -100 }, "Cost must be ฿0.00 to ฿10,000,000.00, in whole satang."],
+    [{ costSatang: 12.5 }, "Cost must be ฿0.00 to ฿10,000,000.00, in whole satang."],
   ])("rejects %o", async (over, error) => {
     expect(await products.createProduct(towel(over))).toEqual({ ok: false, error });
     expect(await productModel(conn).countDocuments()).toBe(0);
   });
 
+  it("money is integer satang: ฿1,800.50 is stored as 180050, exactly", async () => {
+    const p = await created({ priceSatang: 180050, minimumSellingPriceSatang: 10, costSatang: 1 });
+    expect(p).toMatchObject({ priceSatang: 180050, minimumSellingPriceSatang: 10 });
+    const stored = await productModel(conn).findById(p.id).select("+costSatang").lean();
+    expect(stored).toMatchObject({
+      priceSatang: 180050,
+      minimumSellingPriceSatang: 10,
+      costSatang: 1,
+    });
+    expect(stored && "price" in stored).toBe(false);
+  });
+
+  it("rejects amounts above ฿10,000,000.00 and the old whole-baht field names", async () => {
+    expect((await products.createProduct(towel({ priceSatang: 1_000_000_000 }))).ok).toBe(true);
+    for (const over of [
+      { sku: "LX-BIG-1", variants: [{ sku: "LX-BIG-1" }], priceSatang: 1_000_000_001 },
+      { sku: "LX-BIG-2", variants: [{ sku: "LX-BIG-2" }], costSatang: 1_000_000_001 },
+    ])
+      expect((await products.createProduct(towel(over))).ok).toBe(false);
+    const old = await products.createProduct({ ...towel({ sku: "LX-OLD" }), price: 500 });
+    expect(old).toMatchObject({ ok: false, error: expect.stringMatching(/Unrecognized key/) });
+  });
+
   it("rejects wrong types, unknown fields and client-chosen ids or stock", async () => {
     for (const bad of [
-      towel({ price: "500" }),
-      towel({ price: Number.NaN }),
+      towel({ priceSatang: "500" }),
+      towel({ priceSatang: Number.NaN }),
       towel({ category: "weapons" }),
       towel({ id: "prd_mine" }),
       towel({ active: false }),
@@ -229,8 +261,8 @@ describe("SKU and barcode normalization (server-side policy)", () => {
     const base = {
       name: "Raw",
       category: "other",
-      price: 10,
-      minimumSellingPrice: 0,
+      priceSatang: 1000,
+      minimumSellingPriceSatang: 0,
       lowStockThreshold: 0,
       active: true,
     };
@@ -349,17 +381,17 @@ describe("cost is owner-only and never in public reads", () => {
     for (const result of [p, ...listed, one]) {
       expect(result).toBeDefined();
       expect(Object.keys(result ?? {})).not.toContain("cost");
-      expect(JSON.stringify(result)).not.toMatch(/"cost"/);
+      expect(JSON.stringify(result)).not.toMatch(/"cost/);
     }
-    expect((await products.getProductForOwner(p.id))?.cost).toBe(200);
+    expect((await products.getProductForOwner(p.id))?.costSatang).toBe(20000);
   });
 
   it("the model itself hides cost unless a query explicitly asks for it", async () => {
     const p = await created();
     const plain = await productModel(conn).findById(p.id).lean();
-    expect(plain && "cost" in plain).toBe(false);
-    const withCost = await productModel(conn).findById(p.id).select("+cost").lean();
-    expect(withCost?.cost).toBe(200);
+    expect(plain && "costSatang" in plain).toBe(false);
+    const withCost = await productModel(conn).findById(p.id).select("+costSatang").lean();
+    expect(withCost?.costSatang).toBe(20000);
   });
 });
 
@@ -367,22 +399,30 @@ describe("update: the price/minimum relationship holds after every change", () =
   it("accepts valid changes, including clearing cost", async () => {
     const p = await created();
     const r = await products.updateProduct(p.id, {
-      price: 600,
-      minimumSellingPrice: 450,
-      cost: null,
+      priceSatang: 60000,
+      minimumSellingPriceSatang: 45000,
+      costSatang: null,
     });
-    expect(r).toMatchObject({ ok: true, data: { price: 600, minimumSellingPrice: 450 } });
-    expect((await products.getProductForOwner(p.id))?.cost).toBeUndefined();
+    expect(r).toMatchObject({
+      ok: true,
+      data: { priceSatang: 60000, minimumSellingPriceSatang: 45000 },
+    });
+    expect((await products.getProductForOwner(p.id))?.costSatang).toBeUndefined();
   });
 
   it("rejects lowering the price below the existing minimum, or raising the minimum above the price", async () => {
     const p = await created();
-    expect(await products.updateProduct(p.id, { price: 300 })).toEqual({
+    expect(await products.updateProduct(p.id, { priceSatang: 30000 })).toEqual({
       ok: false,
       error: "Minimum selling price cannot be higher than the selling price.",
     });
-    expect((await products.updateProduct(p.id, { minimumSellingPrice: 501 })).ok).toBe(false);
-    expect(await products.getProduct(p.id)).toMatchObject({ price: 500, minimumSellingPrice: 350 });
+    expect((await products.updateProduct(p.id, { minimumSellingPriceSatang: 50100 })).ok).toBe(
+      false,
+    );
+    expect(await products.getProduct(p.id)).toMatchObject({
+      priceSatang: 50000,
+      minimumSellingPriceSatang: 35000,
+    });
   });
 
   it("cannot change SKU, variants, stock, active flag or id through update", async () => {
@@ -409,12 +449,12 @@ describe("update: the price/minimum relationship holds after every change", () =
         variants: [{ sku: `LX-RACE-${round}` }],
       });
       const results = await Promise.all([
-        products.updateProduct(p.id, { price: 400 }),
-        products.updateProduct(p.id, { minimumSellingPrice: 450 }),
+        products.updateProduct(p.id, { priceSatang: 40000 }),
+        products.updateProduct(p.id, { minimumSellingPriceSatang: 45000 }),
       ]);
       expect(results.filter((r) => r.ok)).toHaveLength(1);
       const final = await products.getProduct(p.id);
-      expect(final && final.minimumSellingPrice <= final.price).toBe(true);
+      expect(final && final.minimumSellingPriceSatang <= final.priceSatang).toBe(true);
     }
   });
 
@@ -422,17 +462,17 @@ describe("update: the price/minimum relationship holds after every change", () =
     const p = await created();
     const Product = productModel(conn);
     await expect(
-      Product.updateOne({ _id: p.id }, { $set: { minimumSellingPrice: 9999 } }),
+      Product.updateOne({ _id: p.id }, { $set: { minimumSellingPriceSatang: 999900 } }),
     ).rejects.toThrow("Product pricing can only be changed through the product service.");
-    await expect(Product.findOneAndUpdate({ _id: p.id }, { price: 1 })).rejects.toThrow();
-    await expect(Product.updateMany({}, { $inc: { cost: -500 } })).rejects.toThrow();
+    await expect(Product.findOneAndUpdate({ _id: p.id }, { priceSatang: 100 })).rejects.toThrow();
+    await expect(Product.updateMany({}, { $inc: { costSatang: -50000 } })).rejects.toThrow();
     await expect(Product.replaceOne({ _id: p.id }, towel())).rejects.toThrow();
     // Non-pricing query updates are still possible (later: inventory movements).
     await Product.updateOne({ _id: p.id }, { $set: { name: "Renamed" } });
     expect(await products.getProduct(p.id)).toMatchObject({
       name: "Renamed",
-      price: 500,
-      minimumSellingPrice: 350,
+      priceSatang: 50000,
+      minimumSellingPriceSatang: 35000,
     });
   });
 
@@ -442,7 +482,7 @@ describe("update: the price/minimum relationship holds after every change", () =
       Product.create({
         ...towel(),
         _id: "prd_direct",
-        minimumSellingPrice: 600,
+        minimumSellingPriceSatang: 60000,
         variants: [{ id: "v1", sku: "D", openingStock: 0, stock: 0 }],
       }),
     ).rejects.toThrow("Minimum selling price cannot be higher than the selling price.");

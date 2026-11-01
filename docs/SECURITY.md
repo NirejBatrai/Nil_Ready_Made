@@ -255,8 +255,15 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
 
 - Zod `.strict()` schemas reject unknown fields; IDs, `active`, timestamps and **stock** are
   server-controlled (new products and variants always start at stock 0).
-- Money is whole baht. `productPricingError`: price > 0, minimum ≥ 0 and ≤ price, cost ≥ 0.
-  **Each product has its own minimum; there is no universal minimum price.**
+- **All money is integer satang; never floats** (`priceSatang`, `minimumSellingPriceSatang`,
+  `costSatang`). `productPricingErrorSatang`, run on the server for every write:
+  - every amount is a whole number of satang, at most ฿10,000,000.00;
+  - price ≥ 1 satang, minimum ≥ 0 and ≤ price, cost ≥ 0.
+
+  The browser's parse is a convenience; nothing from the client is trusted. The old whole-baht
+  field names are rejected as unknown keys. **Each product has its own minimum; there is no
+  universal minimum price.**
+
 - SKU: trim → upper-case → `^[A-Z0-9._-]{1,64}$`. Barcode: trim → upper-case → `^[A-Z0-9]{4,64}$`.
   Invalid characters are rejected, never stripped (different codes are never merged).
 - Pricing fields can only change through document `save()`; query-style updates touching

@@ -62,8 +62,8 @@ const raw = (id: string, sku: string, variantSku: string, barcode?: string) => (
   name: id,
   sku,
   category: "other",
-  price: 10,
-  minimumSellingPrice: 0,
+  priceSatang: 1000,
+  minimumSellingPriceSatang: 0,
   lowStockThreshold: 0,
   active: true,
   variants: [

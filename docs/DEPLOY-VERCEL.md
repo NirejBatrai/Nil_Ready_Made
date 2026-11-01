@@ -58,6 +58,9 @@ Run these in the project folder on your own computer. The scripts read `MONGODB_
   precedence (NOT VERIFIED in this project). If your `.env` points at another database, check
   the script output or temporarily move `.env` aside.
 
+- [ ] Only if this database already has products created before 2026-11-01 (whole baht):
+      `bun run db:migrate-money-satang` (dry run: counts only) and then
+      `bun run db:migrate-money-satang --apply`. A new, empty database needs neither.
 - [ ] `bun run db:setup-indexes` → expect "Database indexes are in place. Product creation is
       enabled." It creates the session TTL, login-attempt TTL (`login_attempt_expiry`), unique
       email, single-owner and product indexes. It changes no data.

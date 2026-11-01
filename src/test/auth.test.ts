@@ -807,20 +807,20 @@ describe("authorization: owner-only operations", () => {
       name: "Towel",
       sku: "LX-AUTH-1",
       category: "accessories",
-      price: 500,
-      minimumSellingPrice: 350,
-      cost: 200,
+      priceSatang: 50000,
+      minimumSellingPriceSatang: 35000,
+      costSatang: 20000,
       lowStockThreshold: 1,
       variants: [{ sku: "LX-AUTH-1" }],
     });
     if (!created.ok) throw new Error(created.error);
     const costFor = async (token: unknown) => {
       await auth.requireOwner(token); // the gate every owner-only server function uses
-      return (await products.getProductForOwner(created.data.id))?.cost;
+      return (await products.getProductForOwner(created.data.id))?.costSatang;
     };
     await expect(costFor(undefined)).rejects.toThrow(NOT_SIGNED_IN);
     const { token } = await signIn();
-    expect(await costFor(token)).toBe(200);
+    expect(await costFor(token)).toBe(20000);
     expect(JSON.stringify(await products.getProduct(created.data.id))).not.toContain("cost");
   });
 });
