@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as QuickSalesRouteImport } from './routes/quick-sales'
 import { Route as ShellApprovalsRouteImport } from './routes/_shell.approvals'
 import { Route as ShellAuditRouteImport } from './routes/_shell.audit'
 import { Route as ShellDashboardRouteImport } from './routes/_shell.dashboard'
@@ -24,9 +25,11 @@ import { Route as ShellReconciliationRouteImport } from './routes/_shell.reconci
 import { Route as ShellReportsRouteImport } from './routes/_shell.reports'
 import { Route as ShellSalesRouteImport } from './routes/_shell.sales'
 import { Route as ShellSettingsRouteImport } from './routes/_shell.settings'
+import { Route as ApiDailySummaryRouteImport } from './routes/api.daily-summary'
 import { Route as DevAuthRouteImport } from './routes/dev.auth'
 import { Route as DevDbHealthRouteImport } from './routes/dev.db-health'
 import { Route as OwnerProductsRouteImport } from './routes/owner.products'
+import { Route as OwnerTodayRouteImport } from './routes/owner.today'
 import { Route as OwnerProductsNewRouteImport } from './routes/owner.products_.new'
 import { Route as OwnerProductsProductIdEditRouteImport } from './routes/owner.products_.$productId.edit'
 
@@ -42,6 +45,11 @@ const ShellRoute = ShellRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QuickSalesRoute = QuickSalesRouteImport.update({
+  id: '/quick-sales',
+  path: '/quick-sales',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ShellApprovalsRoute = ShellApprovalsRouteImport.update({
@@ -104,6 +112,11 @@ const ShellSettingsRoute = ShellSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => ShellRoute,
 } as any)
+const ApiDailySummaryRoute = ApiDailySummaryRouteImport.update({
+  id: '/api/daily-summary',
+  path: '/api/daily-summary',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DevAuthRoute = DevAuthRouteImport.update({
   id: '/dev/auth',
   path: '/dev/auth',
@@ -117,6 +130,11 @@ const DevDbHealthRoute = DevDbHealthRouteImport.update({
 const OwnerProductsRoute = OwnerProductsRouteImport.update({
   id: '/owner/products',
   path: '/owner/products',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OwnerTodayRoute = OwnerTodayRouteImport.update({
+  id: '/owner/today',
+  path: '/owner/today',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OwnerProductsNewRoute = OwnerProductsNewRouteImport.update({
@@ -134,6 +152,7 @@ const OwnerProductsProductIdEditRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/quick-sales': typeof QuickSalesRoute
   '/approvals': typeof ShellApprovalsRoute
   '/audit': typeof ShellAuditRoute
   '/dashboard': typeof ShellDashboardRoute
@@ -146,15 +165,18 @@ export interface FileRoutesByFullPath {
   '/reports': typeof ShellReportsRoute
   '/sales': typeof ShellSalesRoute
   '/settings': typeof ShellSettingsRoute
+  '/api/daily-summary': typeof ApiDailySummaryRoute
   '/dev/auth': typeof DevAuthRoute
   '/dev/db-health': typeof DevDbHealthRoute
   '/owner/products': typeof OwnerProductsRoute
+  '/owner/today': typeof OwnerTodayRoute
   '/owner/products/new': typeof OwnerProductsNewRoute
   '/owner/products/$productId/edit': typeof OwnerProductsProductIdEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/quick-sales': typeof QuickSalesRoute
   '/approvals': typeof ShellApprovalsRoute
   '/audit': typeof ShellAuditRoute
   '/dashboard': typeof ShellDashboardRoute
@@ -167,9 +189,11 @@ export interface FileRoutesByTo {
   '/reports': typeof ShellReportsRoute
   '/sales': typeof ShellSalesRoute
   '/settings': typeof ShellSettingsRoute
+  '/api/daily-summary': typeof ApiDailySummaryRoute
   '/dev/auth': typeof DevAuthRoute
   '/dev/db-health': typeof DevDbHealthRoute
   '/owner/products': typeof OwnerProductsRoute
+  '/owner/today': typeof OwnerTodayRoute
   '/owner/products/new': typeof OwnerProductsNewRoute
   '/owner/products/$productId/edit': typeof OwnerProductsProductIdEditRoute
 }
@@ -178,6 +202,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_shell': typeof ShellRouteWithChildren
   '/login': typeof LoginRoute
+  '/quick-sales': typeof QuickSalesRoute
   '/_shell/approvals': typeof ShellApprovalsRoute
   '/_shell/audit': typeof ShellAuditRoute
   '/_shell/dashboard': typeof ShellDashboardRoute
@@ -190,9 +215,11 @@ export interface FileRoutesById {
   '/_shell/reports': typeof ShellReportsRoute
   '/_shell/sales': typeof ShellSalesRoute
   '/_shell/settings': typeof ShellSettingsRoute
+  '/api/daily-summary': typeof ApiDailySummaryRoute
   '/dev/auth': typeof DevAuthRoute
   '/dev/db-health': typeof DevDbHealthRoute
   '/owner/products': typeof OwnerProductsRoute
+  '/owner/today': typeof OwnerTodayRoute
   '/owner/products_/new': typeof OwnerProductsNewRoute
   '/owner/products_/$productId/edit': typeof OwnerProductsProductIdEditRoute
 }
@@ -201,6 +228,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/quick-sales'
     | '/approvals'
     | '/audit'
     | '/dashboard'
@@ -213,15 +241,18 @@ export interface FileRouteTypes {
     | '/reports'
     | '/sales'
     | '/settings'
+    | '/api/daily-summary'
     | '/dev/auth'
     | '/dev/db-health'
     | '/owner/products'
+    | '/owner/today'
     | '/owner/products/new'
     | '/owner/products/$productId/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/login'
+    | '/quick-sales'
     | '/approvals'
     | '/audit'
     | '/dashboard'
@@ -234,9 +265,11 @@ export interface FileRouteTypes {
     | '/reports'
     | '/sales'
     | '/settings'
+    | '/api/daily-summary'
     | '/dev/auth'
     | '/dev/db-health'
     | '/owner/products'
+    | '/owner/today'
     | '/owner/products/new'
     | '/owner/products/$productId/edit'
   id:
@@ -244,6 +277,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_shell'
     | '/login'
+    | '/quick-sales'
     | '/_shell/approvals'
     | '/_shell/audit'
     | '/_shell/dashboard'
@@ -256,9 +290,11 @@ export interface FileRouteTypes {
     | '/_shell/reports'
     | '/_shell/sales'
     | '/_shell/settings'
+    | '/api/daily-summary'
     | '/dev/auth'
     | '/dev/db-health'
     | '/owner/products'
+    | '/owner/today'
     | '/owner/products_/new'
     | '/owner/products_/$productId/edit'
   fileRoutesById: FileRoutesById
@@ -267,9 +303,12 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ShellRoute: typeof ShellRouteWithChildren
   LoginRoute: typeof LoginRoute
+  QuickSalesRoute: typeof QuickSalesRoute
+  ApiDailySummaryRoute: typeof ApiDailySummaryRoute
   DevAuthRoute: typeof DevAuthRoute
   DevDbHealthRoute: typeof DevDbHealthRoute
   OwnerProductsRoute: typeof OwnerProductsRoute
+  OwnerTodayRoute: typeof OwnerTodayRoute
   OwnerProductsNewRoute: typeof OwnerProductsNewRoute
   OwnerProductsProductIdEditRoute: typeof OwnerProductsProductIdEditRoute
 }
@@ -295,6 +334,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/quick-sales': {
+      id: '/quick-sales'
+      path: '/quick-sales'
+      fullPath: '/quick-sales'
+      preLoaderRoute: typeof QuickSalesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_shell/approvals': {
@@ -381,6 +427,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSettingsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/api/daily-summary': {
+      id: '/api/daily-summary'
+      path: '/api/daily-summary'
+      fullPath: '/api/daily-summary'
+      preLoaderRoute: typeof ApiDailySummaryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dev/auth': {
       id: '/dev/auth'
       path: '/dev/auth'
@@ -400,6 +453,13 @@ declare module '@tanstack/react-router' {
       path: '/owner/products'
       fullPath: '/owner/products'
       preLoaderRoute: typeof OwnerProductsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/owner/today': {
+      id: '/owner/today'
+      path: '/owner/today'
+      fullPath: '/owner/today'
+      preLoaderRoute: typeof OwnerTodayRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/owner/products_/new': {
@@ -455,9 +515,12 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ShellRoute: ShellRouteWithChildren,
   LoginRoute: LoginRoute,
+  QuickSalesRoute: QuickSalesRoute,
+  ApiDailySummaryRoute: ApiDailySummaryRoute,
   DevAuthRoute: DevAuthRoute,
   DevDbHealthRoute: DevDbHealthRoute,
   OwnerProductsRoute: OwnerProductsRoute,
+  OwnerTodayRoute: OwnerTodayRoute,
   OwnerProductsNewRoute: OwnerProductsNewRoute,
   OwnerProductsProductIdEditRoute: OwnerProductsProductIdEditRoute,
 }

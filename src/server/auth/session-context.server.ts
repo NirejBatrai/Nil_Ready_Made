@@ -9,6 +9,7 @@ import {
   getRequestIP,
   setCookie,
 } from "@tanstack/react-start/server";
+import type { Permission } from "@/lib/permissions";
 import { database } from "@/server/db.server";
 import { createAuthService, type AuthUser } from "./auth.server";
 import { loginClientAddress } from "./client-address.server";
@@ -66,6 +67,17 @@ export async function currentUserFromCookie(): Promise<AuthUser | undefined> {
   const user = await database.withDatabase((conn) => createAuthService(conn).resolveSession(token));
   if (!user) deleteCookie(COOKIE, sessionCookieOptions(PRODUCTION));
   return user;
+}
+
+/**
+ * Throws AuthError("Not signed in." / "Not allowed.") unless the signed-in user's role has
+ * `permission` (src/lib/permissions.ts, deny by default). INTERIM Quick Sales (decision 0004).
+ */
+export async function requirePermissionFromCookie(permission: Permission): Promise<AuthUser> {
+  const token = getCookie(COOKIE);
+  return database.withDatabase((conn) =>
+    createAuthService(conn).requirePermission(token, permission),
+  );
 }
 
 /** Throws AuthError("Not signed in." / "Not allowed.") unless an active owner is signed in. */

@@ -7,6 +7,7 @@
  * imports. All server functions are also covered by the CSRF middleware in src/start.ts.
  */
 import { createMiddleware, createServerFn } from "@tanstack/react-start";
+import type { Permission } from "./permissions";
 import { safeErrors } from "./server-errors";
 
 const LOGIN_FAILED = "Email or password is incorrect.";
@@ -21,6 +22,20 @@ export const requireOwner = createMiddleware({ type: "function" }).server(async 
   const user = await requireOwnerFromCookie();
   return next({ context: { user } });
 });
+
+/**
+ * INTERIM Quick Sales (decision 0004). Use AFTER `safeErrors`:
+ * `.middleware([safeErrors, requirePermission("quickSales.add")])`. Throws "Not signed in." /
+ * "Not allowed." unless the signed-in user's role has `permission` in src/lib/permissions.ts
+ * (deny by default); passes `{ user }` to the handler's context. The session and the user are
+ * re-read on every call.
+ */
+export const requirePermission = (permission: Permission) =>
+  createMiddleware({ type: "function" }).server(async ({ next }) => {
+    const { requirePermissionFromCookie } = await import("@/server/auth/session-context.server");
+    const user = await requirePermissionFromCookie(permission);
+    return next({ context: { user } });
+  });
 
 /**
  * Never throws: input validators may run outside the middleware chain, where a thrown error

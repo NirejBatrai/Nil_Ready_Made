@@ -13,7 +13,7 @@
  * Requires a local Google Chrome (CHROME_PATH or /usr/bin/google-chrome); skipped without it.
  */
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
@@ -35,6 +35,8 @@ import { connectOptions } from "@/server/db.server";
 import { sessionModel } from "@/server/models/session.server";
 import { ensureProductIndexes, productModel } from "@/server/models/product.server";
 import { createProductService } from "@/server/products.server";
+import { quickSaleModel } from "@/server/models/quick-sale.server";
+import { bangkokTime } from "@/lib/bangkok-time";
 
 const ENABLED = process.env["RUN_AUTH_E2E"] === "1";
 const CHROME = process.env["CHROME_PATH"] ?? "/usr/bin/google-chrome";
@@ -43,6 +45,10 @@ const HAVE_CHROME = existsSync(CHROME);
 const EMAIL = "e2e-owner@example.invalid";
 const PASSWORD = "e2e-test-password-1"; // throwaway database only
 const COOKIE = "luxe_session";
+// INTERIM Quick Sales (decision 0004): staff accounts and a throwaway API token for this run only.
+const STAFF_EMAIL = "e2e-staff@example.invalid";
+const STAFF2_EMAIL = "e2e-staff2@example.invalid";
+const SUMMARY_TOKEN = randomBytes(32).toString("base64");
 const ENV_LIKE = /(^|\/)(\.env(\..*)?|\.dev\.vars)$/;
 const LEAK =
   /"stack"|\bat\s+\S+\s*\(|\/tmp\/|\/home\/|node_modules|\.server\.ts|mongodb(\+srv)?:\/\//;
@@ -160,6 +166,7 @@ async function startDevServer(dir: string, mongoUri: string) {
         PATH: process.env["PATH"] ?? "",
         HOME: tmpdir(),
         MONGODB_URI: mongoUri,
+        SUMMARY_API_TOKEN: SUMMARY_TOKEN,
         NO_COLOR: "1",
       },
     },
@@ -251,6 +258,17 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         password: PASSWORD,
       });
       if (!owner.ok) throw new Error(owner.error);
+      for (const [email, name] of [
+        [STAFF_EMAIL, "E2E Staff"],
+        [STAFF2_EMAIL, "E2E Staff Two"],
+      ] as const) {
+        const staff = await createAuthService(conn).createStaff({
+          email,
+          name,
+          password: PASSWORD,
+        });
+        if (!staff.ok) throw new Error(staff.error);
+      }
       const product = await createProductService(conn).createProduct({
         name: "E2E Towel",
         sku: "LX-E2E-1",
@@ -1191,6 +1209,360 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       } finally {
         await other.close();
       }
+    });
+
+    // ---- INTERIM Quick Sales (decision 0004): staff flow, owner day page, n8n API ----
+    describe("interim Quick Sales (staff, /owner/today, /api/daily-summary)", () => {
+      let staffCtx: BrowserContext;
+      let staff: Page;
+      let staff2Ctx: BrowserContext;
+      let staff2: Page;
+      let ownerCtx: BrowserContext;
+      let owner: Page;
+      /** Server-function responses seen by each staff member's own browser. */
+      const staffResponses: Record<"one" | "two", string[]> = { one: [], two: [] };
+      /** The exported name of a captured dev-mode server function ("<name>_createServerFn_handler"). */
+      const fnName = (url: string) => {
+        const id = new URL(url).pathname.split("/").at(-1) ?? "";
+        try {
+          const parsed: unknown = JSON.parse(Buffer.from(id, "base64url").toString("utf8"));
+          return typeof parsed === "object" && parsed !== null && "export" in parsed
+            ? String(parsed.export)
+            : "";
+        } catch {
+          return "";
+        }
+      };
+      const watch = (p: Page, staffBucket?: "one" | "two") => {
+        p.on("request", (r) => {
+          if (r.url().includes("/_serverFn"))
+            requests.push({
+              url: r.url(),
+              method: r.method(),
+              headers: r.headers(),
+              body: r.postData(),
+            });
+        });
+        p.on("response", async (r) => {
+          if (!r.url().includes("/_serverFn")) return;
+          const text = await r.text().catch(() => "");
+          responses.push(text);
+          if (staffBucket) staffResponses[staffBucket].push(text);
+        });
+      };
+      const signInAt = async (p: Page, email: string) => {
+        await p.goto(`${base}/login`, { waitUntil: "networkidle" });
+        await p.waitForSelector('[data-testid="login-submit"]:not([disabled])');
+        await p.getByTestId("login-email").fill(email);
+        await p.getByTestId("login-password").fill(PASSWORD);
+        await p.getByTestId("login-submit").click();
+      };
+      const cookieOf = async (ctx: BrowserContext) =>
+        (await ctx.cookies()).find((c) => c.name === COOKIE)?.value ?? "";
+      const addSale = async (p: Page, item: string, amount: string, pay: "cash" | "qr") => {
+        await p.waitForSelector('[data-testid="qs-add"]:not([disabled])');
+        await p.getByTestId("qs-item").fill(item);
+        await p.getByTestId("qs-amount").fill(amount);
+        await p.getByTestId(`qs-${pay}`).click();
+        await p.getByTestId("qs-add").click();
+        await p.getByTestId("qs-saved").waitFor();
+      };
+      const sales = () => {
+        if (!conn) throw new Error("no test db");
+        return quickSaleModel(conn);
+      };
+
+      beforeAll(async () => {
+        if (!browser) throw new Error("no browser");
+        staffCtx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+        staff = await staffCtx.newPage();
+        watch(staff, "one");
+        staff2Ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+        staff2 = await staff2Ctx.newPage();
+        watch(staff2, "two");
+        ownerCtx = await browser.newContext();
+        owner = await ownerCtx.newPage();
+        watch(owner);
+      });
+
+      afterAll(async () => {
+        await staffCtx?.close();
+        await staff2Ctx?.close();
+        await ownerCtx?.close();
+      });
+
+      it("signed out, /quick-sales and /owner/today redirect to /login", async () => {
+        for (const path of ["/quick-sales", "/owner/today"]) {
+          const res = await fetch(`${base}${path}`, { redirect: "manual" });
+          expect(res.status, path).toBe(307);
+          expect(res.headers.get("location"), path).toMatch(/\/login$/);
+          expectSecured(res.headers, `${path} signed out`);
+        }
+      });
+
+      it("staff sign in at /login and land on /quick-sales: first only the opening-change form, no links", async () => {
+        await signInAt(staff, STAFF_EMAIL);
+        await staff.waitForURL(`${base}/quick-sales`);
+        await staff.getByTestId("qs-opening-form").waitFor();
+        expect(await staff.getByText("Change money in bag (฿)").isVisible()).toBe(true);
+        expect(await staff.getByTestId("qs-sale-form").count()).toBe(0);
+        expect(await staff.locator("a[href]").count()).toBe(0);
+        // Opening /login again while signed in goes straight back.
+        await staff.goto(`${base}/login`);
+        await staff.waitForURL(`${base}/quick-sales`);
+      });
+
+      it("records the opening change once; a second one (replayed, or another staff member) is refused", async () => {
+        await staff.waitForSelector('[data-testid="qs-opening-save"]:not([disabled])');
+        await staff.getByTestId("qs-opening").fill("1,000");
+        await staff.getByTestId("qs-opening-save").click();
+        await staff.getByTestId("qs-sale-form").waitFor();
+        const opening = requests
+          .filter((r) => fnName(r.url).startsWith("recordOpeningFloat"))
+          .at(-1);
+        if (!opening) throw new Error("no captured opening request");
+        const again = await replay(opening, { origin: "same", cookie: await cookieOf(staffCtx) });
+        expect(again.text).toContain("Today's change money is already recorded.");
+        await signInAt(staff2, STAFF2_EMAIL);
+        await staff2.waitForURL(`${base}/quick-sales`);
+        await staff2.getByTestId("qs-sale-form").waitFor();
+        expect(await staff2.getByTestId("qs-opening-form").count()).toBe(0);
+      });
+
+      it("adds sales with decimals: Saved ✓ and the own entry listed; bad input saves nothing", async () => {
+        await addSale(staff, "Silk scarf", "1,800.50", "cash");
+        const rows = staff.getByTestId("qs-recent-row");
+        await expect.poll(() => rows.count()).toBe(1);
+        expect(await rows.first().textContent()).toMatch(/Silk scarf.*Cash · ฿1,800\.50/);
+        // No payment chosen.
+        await staff.getByTestId("qs-item").fill("No payment");
+        await staff.getByTestId("qs-amount").fill("10");
+        await staff.getByTestId("qs-add").click();
+        await expect
+          .poll(() => staff.getByTestId("qs-error").textContent())
+          .toBe("Choose Cash or QR.");
+        // Three decimals: the server's parser refuses it.
+        await staff.getByTestId("qs-amount").fill("1.005");
+        await staff.getByTestId("qs-qr").click();
+        await staff.getByTestId("qs-add").click();
+        await expect
+          .poll(() => staff.getByTestId("qs-error").textContent())
+          .toBe("Use at most 2 decimal places (satang).");
+        expect(await sales().countDocuments()).toBe(1);
+        expect(await sales().findOne({ itemText: "Silk scarf" }).lean()).toMatchObject({
+          amountSatang: 180050,
+          payment: "cash",
+          cancelled: false,
+        });
+        await addSale(staff, "Belt", "99.99", "qr");
+        await addSale(staff2, "Linen bag", "2500", "qr");
+      });
+
+      it("cancels an own sale within 10 minutes; someone else's or an older one is refused", async () => {
+        const belt = staff.getByTestId("qs-recent-row").filter({ hasText: "Belt" });
+        await belt.getByTestId("qs-cancel").click();
+        await staff.getByTestId("qs-cancel-confirm").click();
+        await expect.poll(() => belt.textContent()).toMatch(/Cancelled/);
+        expect(await belt.getByTestId("qs-cancel").count()).toBe(0);
+        expect(await sales().findOne({ itemText: "Belt" }).lean()).toMatchObject({
+          cancelled: true,
+          cancelledAt: expect.any(Date),
+        });
+        // Replay the cancel with the other staff member's sale id.
+        const cancel = requests.filter((r) => fnName(r.url).startsWith("cancelQuickSale")).at(-1);
+        const theirs = await sales().findOne({ itemText: "Linen bag" }).lean();
+        const beltDoc = await sales().findOne({ itemText: "Belt" }).lean();
+        if (!cancel?.body || !theirs || !beltDoc) throw new Error("no cancel request or sale");
+        const hijack = { ...cancel, body: cancel.body.replace(beltDoc._id, theirs._id) };
+        expect(hijack.body).toContain(theirs._id);
+        const refused = await replay(hijack, { origin: "same", cookie: await cookieOf(staffCtx) });
+        expect(refused.text).toContain("This sale can no longer be cancelled.");
+        expect(await sales().findById(theirs._id).lean()).toMatchObject({ cancelled: false });
+        // An own sale older than 10 minutes: not listed any more, and cancelling it is refused.
+        await addSale(staff, "Old item", "10", "cash");
+        const old = await sales().findOne({ itemText: "Old item" }).lean();
+        if (!old) throw new Error("no old item");
+        await sales().updateOne(
+          { _id: old._id },
+          { $set: { createdAt: new Date(Date.now() - 11 * 60 * 1000) } },
+        );
+        await staff.reload({ waitUntil: "networkidle" });
+        await staff.getByTestId("qs-sale-form").waitFor();
+        expect(await staff.getByTestId("qs-recent").textContent()).not.toContain("Old item");
+        const late = { ...cancel, body: cancel.body.replace(beltDoc._id, old._id) };
+        expect(
+          (await replay(late, { origin: "same", cookie: await cookieOf(staffCtx) })).text,
+        ).toContain("This sale can no longer be cancelled.");
+        expect(await sales().findById(old._id).lean()).toMatchObject({ cancelled: false });
+      });
+
+      it("staff pages and responses never show totals or other people's sales", async () => {
+        const text = (await staff.content()) + staffResponses.one.join("\n");
+        for (const forbidden of [
+          "Linen bag",
+          "E2E Staff Two",
+          "totalSatang",
+          "cashSatang",
+          "qrSatang",
+          "openingFloatSatang",
+          "expectedCashSatang",
+          "cancelledCount",
+          "staffName",
+          "userId",
+          "usr_",
+          "100000", // the opening change in satang
+          "฿1,000.00",
+          "Total",
+        ])
+          expect(text, forbidden).not.toContain(forbidden);
+        const other = (await staff2.content()) + staffResponses.two.join("\n");
+        for (const forbidden of [
+          "Silk scarf",
+          "Belt",
+          "totalSatang",
+          "cashSatang",
+          "staffName",
+          "usr_",
+        ])
+          expect(other, forbidden).not.toContain(forbidden);
+      });
+
+      it("staff are refused on every owner page, every product function, and never reach the demo", async () => {
+        for (const path of [
+          "/owner/products",
+          "/owner/products?view=archived",
+          "/owner/products/new",
+          `/owner/products/${productId}/edit`,
+          "/owner/today",
+          "/",
+          "/pos",
+          "/sales",
+          "/dashboard",
+          "/products",
+        ]) {
+          await staff.goto(`${base}${path}`);
+          await expect
+            .poll(() => new URL(staff.url()).pathname, { message: path, timeout: 15_000 })
+            .toBe("/quick-sales");
+          await staff.getByTestId("qs-sale-form").waitFor();
+          const html = await staff.content();
+          expect(html, path).not.toContain("E2E Towel");
+          expect(html, path).not.toContain("Demo role");
+        }
+        // Every captured owner product function, replayed with the staff cookie.
+        const productFns = [
+          "getProductForOwner",
+          "listProductsForOwner",
+          "createProductForOwner",
+          "getProductForEditing",
+          "updateProductForOwner",
+          "archiveProductForOwner",
+          "restoreProductForOwner",
+        ];
+        const cookie = await cookieOf(staffCtx);
+        const seen = new Set<string>();
+        for (const req of requests) {
+          const name = productFns.find((f) => fnName(req.url).startsWith(`${f}_`));
+          if (!name || seen.has(name)) continue;
+          seen.add(name);
+          const r = await replay(req, { origin: "same", cookie });
+          expect(r.text, name).toContain("Not allowed.");
+          expect(r.text, name).not.toContain("E2E Towel");
+        }
+        expect([...seen].sort()).toEqual([...productFns].sort());
+      });
+
+      it("the owner sees /owner/today: totals, expected cash, every sale with staff and status", async () => {
+        await signInAt(owner, EMAIL);
+        await owner.getByTestId("owner-today-link").click();
+        await owner.waitForURL(`${base}/owner/today`);
+        await owner.getByTestId("today-sales").waitFor();
+        const stat = (id: string) => owner.getByTestId(id).textContent();
+        expect(await stat("today-opening")).toBe("฿1,000.00");
+        expect(await stat("today-total")).toBe("฿4,310.50");
+        expect(await stat("today-cash")).toBe("฿1,810.50");
+        expect(await stat("today-qr")).toBe("฿2,500.00");
+        expect(await stat("today-count")).toBe("3");
+        expect(await stat("today-cancelled")).toBe("1");
+        expect(await stat("today-expected-cash")).toBe("฿2,810.50");
+        const rows = await owner.getByTestId("today-row").allTextContents();
+        expect(rows).toHaveLength(4);
+        const row = (item: string) => rows.find((r) => r.includes(item)) ?? "";
+        // Time, item, amount, payment, staff, status.
+        expect(row("Silk scarf")).toMatch(/^\d\d:\d\dSilk scarf฿1,800\.50CashE2E StaffOK$/);
+        expect(row("Linen bag")).toMatch(/^\d\d:\d\dLinen bag฿2,500\.00QRE2E Staff TwoOK$/);
+        expect(row("Belt")).toMatch(/^\d\d:\d\dBelt฿99\.99QRE2E StaffCancelled$/);
+        expect(row("Old item")).toMatch(/^\d\d:\d\dOld item฿10\.00CashE2E StaffOK$/);
+        // The date picker: an earlier day is empty.
+        await owner.getByTestId("today-date").fill("2026-01-15");
+        await owner.waitForURL(`${base}/owner/today?date=2026-01-15`);
+        await owner.getByTestId("today-empty").waitFor();
+        expect(await stat("today-opening")).toBe("Not recorded");
+        expect(await stat("today-total")).toBe("฿0.00");
+      });
+
+      it("GET /api/daily-summary: refused without a valid token (also with a session cookie); the token works", async () => {
+        const url = `${base}/api/daily-summary`;
+        const ownerCookie = `${COOKIE}=${await cookieOf(ownerCtx)}`;
+        for (const headers of [
+          {},
+          { cookie: ownerCookie },
+          { authorization: "Bearer short" },
+          { authorization: `Bearer ${SUMMARY_TOKEN.slice(0, -1)}x` },
+          { authorization: `Basic ${SUMMARY_TOKEN}` },
+        ] as Record<string, string>[]) {
+          const res = await fetch(url, { headers });
+          const text = await res.text();
+          responses.push(text);
+          expect(res.status, JSON.stringify(Object.keys(headers))).toBe(401);
+          expect(JSON.parse(text)).toEqual({ error: "Not allowed." });
+          expectSecured(res.headers, "api refused");
+        }
+        const res = await fetch(url, { headers: { authorization: `Bearer ${SUMMARY_TOKEN}` } });
+        expect(res.status).toBe(200);
+        expectSecured(res.headers, "api ok");
+        expect(res.headers.get("set-cookie")).toBeNull();
+        const body: unknown = await res.json();
+        const kept = await sales().find({ cancelled: false }).sort({ createdAt: 1, _id: 1 }).lean();
+        expect(body).toEqual({
+          date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+          openingFloatSatang: 100000,
+          totalSatang: 431050,
+          cashSatang: 181050,
+          qrSatang: 250000,
+          count: 3,
+          cancelledCount: 1,
+          sales: kept.map((s) => ({
+            time: bangkokTime(s.createdAt),
+            itemText: s.itemText,
+            amountSatang: s.amountSatang,
+            payment: s.payment,
+          })),
+        });
+        expect(kept.map((s) => s.itemText)).toEqual(["Old item", "Silk scarf", "Linen bag"]);
+      });
+
+      it("failed API attempts are rate-limited per address: 10 failures, then 429 even with the token", async () => {
+        const url = `${base}/api/daily-summary`;
+        // 5 failures were counted above; 5 more reach the limit of 10.
+        for (let i = 0; i < 5; i++)
+          expect((await fetch(url, { headers: { authorization: "Bearer wrong" } })).status).toBe(
+            401,
+          );
+        const blocked = await fetch(url, { headers: { authorization: `Bearer ${SUMMARY_TOKEN}` } });
+        expect(blocked.status).toBe(429);
+        expect(await blocked.json()).toEqual({ error: "Too many attempts. Try again later." });
+        // Login uses its own limits: the owner can still sign in.
+        await owner.goto(`${base}/login`, { waitUntil: "networkidle" });
+        await owner.getByTestId("signed-in").waitFor();
+      });
+
+      it("staff log out from /quick-sales", async () => {
+        await staff.getByTestId("qs-logout").click();
+        await staff.waitForURL(`${base}/login`);
+        await staff.getByTestId("login-form").waitFor();
+        expect(await cookieOf(staffCtx)).toBe("");
+      });
     });
 
     it("5 failed logins block further attempts, even with the right password", async () => {

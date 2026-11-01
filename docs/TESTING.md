@@ -1,6 +1,6 @@
 # Testing
 
-_Commands VERIFIED from `package.json` and by running them on 2026-10-23, 2026-10-24, 2026-10-25, 2026-10-27, 2026-10-28 and 2026-10-31 (twice: product edit/archive, Step 5c) and 2026-11-01 (money in satang)._
+_Commands VERIFIED from `package.json` and by running them on 2026-10-23, 2026-10-24, 2026-10-25, 2026-10-27, 2026-10-28 and 2026-10-31 (twice: product edit/archive, Step 5c) and 2026-11-01 (money in satang; interim Quick Sales)._
 
 ## Prerequisites
 
@@ -30,20 +30,20 @@ How `.env` is kept out of tests (VERIFIED 2026-10-24):
 
 ## Commands
 
-| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                                                 |
-| ------------------------ | --------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (11-01, with money in satang)                                                                                   |
-| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                                                         |
-| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (11-01, with money in satang)                                                     |
-| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (11-01, with money in satang)                                                              |
-| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 291 passed, 0 failed, 46 skipped (11-01, with money in satang)                                                         |
-| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                                                |
-| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 44 passed, 0 failed, 1 skipped (11-01, with money in satang); former intermittent failure fixed, see Known test limits |
-| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                                               |
-| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                                                  |
-| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                                                  |
-| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                                                      |
-| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                                                  |
+| Purpose                  | Command                                                   | Loads `.env`?          | Verified result (date)                                                                                                |
+| ------------------------ | --------------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Type check               | `bun run typecheck` (`tsc --noEmit -p .`)                 | No                     | exit 0 (11-01, with interim Quick Sales)                                                                              |
+| Type check (fast)        | `npx -y -p @typescript/native-preview tsgo --noEmit -p .` | No                     | exit 0 (10-23)                                                                                                        |
+| Lint                     | `bun run lint`                                            | No                     | 0 errors, 11 warnings (pre-existing) (11-01, with interim Quick Sales)                                                |
+| Format check             | `bun run format:check` (`prettier --check .`)             | No                     | exit 0, all files formatted (11-01, with interim Quick Sales)                                                         |
+| Unit + integration       | `bun run test`                                            | No (`envDir: false`)   | 332 passed, 0 failed, 57 skipped (11-01, with interim Quick Sales)                                                    |
+| Watch mode               | `bun run test:watch`                                      | No (`envDir: false`)   | not run                                                                                                               |
+| **E2E (opt-in)**         | `bun run test:e2e`                                        | **No** (isolated copy) | 55 passed, 0 failed, 1 skipped (11-01, with interim Quick Sales); former intermittent failure fixed, see Known limits |
+| Live Atlas ping (opt-in) | `bun run test:db`                                         | **Yes**                | NOT run by agents; owner reported a pass                                                                              |
+| Production build         | `bun run build`                                           | **Yes**                | NOT run in the real project by agents                                                                                 |
+| Dev server               | `bun run dev`                                             | **Yes**                | NOT run in the real project by agents                                                                                 |
+| Preview build            | `bun run preview`                                         | Likely (NOT VERIFIED)  | NOT run by agents                                                                                                     |
+| Format files             | `bunx prettier --write <files>`                           | No                     | used on changed files                                                                                                 |
 
 Do not run the `.env`-loading commands unless the owner asks; prefer that the owner runs them.
 If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier …` are equivalent.
@@ -63,6 +63,9 @@ If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier
 | `money.test.ts`                                                                                                       | Real-backend money: `parseBahtToSatang` ("1800", "1,800", "1800.50", "0.1" → 10 exactly, floating-point traps, whitespace, junk, wrong grouping, "1.005" and negatives rejected, ฿10,000,000.00 bound), `formatSatang` (always two decimals), round trips, `productPricingErrorSatang`                                                                                                                                                                                                                                                                                                                            |
 | `migrate-money-satang.test.ts`                                                                                        | Runs `scripts/migrate-money-satang.ts` under Bun on isolated DBs: dry run changes nothing, `--apply` converts ×100 and removes the old fields, a second run changes nothing, resumes after interruption, refuses unsafe values changing nothing, prints counts only                                                                                                                                                                                                                                                                                                                                               |
 | `setup-indexes.test.ts`                                                                                               | Runs `scripts/setup-indexes.ts` under Bun on isolated DBs: creates, idempotent, refuses on conflicts/unnormalized data without changing it, stops on index-definition conflicts                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `quick-sales.test.ts`                                                                                                 | INTERIM Quick Sales service on an isolated DB: Bangkok business day at midnight (16:59:59.999 / 17:00 UTC), `parseBusinessDay`, the permission table (deny by default, prototype keys), `createStaff`/`requirePermission`, one opening change per day (5 simultaneous → 1), sale validation and refused client fields, the 10-minute own-cancel window (9:59.999 ok, 10:00 refused), someone else's sale refused, atomic cancel, the staff view (own, ≤ 5, last 10 min, no totals), day totals and expected cash                                                                                                  |
+| `quick-sales-server-fns.test.ts`                                                                                      | INTERIM Quick Sales server functions through the real middleware chain (harness of `products-server-fns`): staff refused on all seven product functions and `getDayForOwner`; signed out / forged / inactive refused; source check (`safeErrors` + `requirePermission` on all five); staff flow; userId from the session; leak test (no totals, names, ids or other users' sales in any staff response)                                                                                                                                                                                                           |
+| `summary-api.test.ts`                                                                                                 | INTERIM `/api/daily-summary` handler with real Requests: fail closed without a ≥ 32-character token (no database touched), missing/other-scheme/short/wrong/near-miss tokens 401, session cookies ignored, SHA-256 + `timingSafeEqual`, failure rate limit per address (10 / 15 min, then 429 even with the token; IPv6 /64; no-address bucket), database down 503, exact JSON shape, default date at the Bangkok midnight boundary, bad dates 400                                                                                                                                                                |
 | `auth.test.ts`                                                                                                        | Passwords, login, attempt limits (simultaneous attempts, per-address/email rotation, IPv6 /64, database-down and hashing-busy un-counting, per-account limit incl. emails without an account and address rotation, no shared bucket without an address), hashing concurrency bound, sessions/expiry, session revocation and login hygiene (revoke all, sign out everywhere, old session deleted at login, 5-session cap, `lastSeenAt` throttling with a write count, User-Agent truncation, legacy sessions without the new fields, no logging), owner authorization, single owner, cookie options, config checks |
 | `client-address.test.ts`                                                                                              | Login client address: socket address on a plain server with spoofed `x-vercel-forwarded-for`/`CF-Connecting-IP` ignored; on Vercel (simulated `VERCEL=1`) the first `x-vercel-forwarded-for` entry only, never the socket or later entries; `CF-Connecting-IP` only on Workers; non-IP values give no address; detection by `VERCEL=1` / user agent                                                                                                                                                                                                                                                               |
 | `login-limiter.test.ts`                                                                                               | MongoDB login limiter on an isolated DB: limit and sliding window, kinds/keys independent and literal, 50 simultaneous attempts → exactly the limit, counts shared by two instances, undo removes exactly one attempt, TTL index present and real TTL deletion, database errors fail closed                                                                                                                                                                                                                                                                                                                       |
@@ -93,6 +96,17 @@ If `bunx` is not on `PATH`, `npx tsc --noEmit -p .` and `npx -y bun@1 x prettier
    `node .output/server/index.mjs` (no database setting) and checked for security headers on
    `/login`, `favicon.ico` and a hashed `/assets/*` file, a 404 for `/_headers`, and CSRF: its own
    login request replayed cross-site or without origin headers gets 403, same-origin gets 200.
+   **INTERIM Quick Sales** (decision 0004; the dev server gets a throwaway random
+   `SUMMARY_API_TOKEN`): staff sign in and land on `/quick-sales`; the first view is the
+   opening-change form only, with no links; a second opening change is refused (replayed, and for
+   a second staff member); sales with decimals ("1,800.50", "Saved ✓"); "1.005" and a missing
+   payment are refused; own cancel; replayed cancels of another staff member's sale and of an
+   11-minute-old sale are refused; staff pages and responses contain no totals or other people's
+   sales; staff are sent back to `/quick-sales` from every `/owner` page, `/` and demo screens;
+   all seven product functions replayed with a staff cookie answer "Not allowed.";
+   `/owner/today` (totals, expected cash, every row with staff and status, date picker);
+   `/api/daily-summary` is refused without a valid token (also with an owner cookie), returns the
+   exact JSON with it, then answers 429 after 10 failures; staff log out.
 5. Cleans up the copy, dev server and database (verified: nothing left running).
 
 ## Proving protections (required for security changes)
@@ -129,6 +143,16 @@ On 2026-11-01 (money in satang), each restored byte-identical, all caught by uni
 parser's 2-decimal rule ("1.005" was accepted as 105), the fraction scaling (padStart: "1800.5"
 → 180005), the migration's idempotency guard (update every product), dry run by default, and
 the migration's blocking check.
+
+On 2026-11-01 (interim Quick Sales), each restored byte-identical (checked with `cmp`), all
+caught by unit tests: the staff permission guard (staff granted `quickSales.viewDay` in the
+table: 3 tests failed; `requirePermission` skipping the table: 2 failed), the token check (the
+comparison always true: 5 failed; the 32-character minimum removed: the fail-closed test
+failed), the cancel-ownership rule (`userId` removed from the atomic filter: 2 failed), and the
+leak guard (the staff list not limited to own sales: 2 failed; the day totals added to the staff
+page: 4 failed). Control run: 41/41 passed. The E2E suite also caught a real gap while being
+written: `/owner/products/new` rendered its empty form for staff (fixed: non-owners are sent to
+`/login`, which sends staff to `/quick-sales`).
 
 ## Regenerating `src/routeTree.gen.ts` without loading `.env`
 

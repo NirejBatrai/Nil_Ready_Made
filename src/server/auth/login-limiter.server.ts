@@ -24,8 +24,11 @@ export interface LoginLimit {
   windowMs: number;
 }
 
-/** Keeps the three limits' keys apart inside the one collection. */
-export type LoginLimiterKind = "email_address" | "address" | "account";
+/**
+ * Keeps the limits' keys apart inside the one collection. `summary_api` counts failed
+ * /api/daily-summary token attempts per client address (decision 0004).
+ */
+export type LoginLimiterKind = "email_address" | "address" | "account" | "summary_api";
 
 const isDuplicateKey = (e: unknown) =>
   typeof e === "object" && e !== null && "code" in e && e.code === 11000;

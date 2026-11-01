@@ -1,9 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, ShieldAlert, ShoppingBag, LayoutDashboard } from "lucide-react";
 import { repo } from "@/lib/repository";
+import { keepStaffOutOfDemo } from "@/lib/staff-guard";
 import type { Role } from "@/types/domain";
 
 export const Route = createFileRoute("/")({
+  // INTERIM Quick Sales (decision 0004): staff sessions go to /quick-sales, never the demo.
+  beforeLoad: keepStaffOutOfDemo,
   head: () => ({
     meta: [
       { title: "Luxe Retail OS — Retail POS & inventory demo" },

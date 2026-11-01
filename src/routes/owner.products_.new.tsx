@@ -39,7 +39,9 @@ export const Route = createFileRoute("/owner/products_/new")({
       return { authUnavailable: true };
     }
     // The only allowlisted return path is the list; the owner reaches this form from there.
-    if (!user) throw redirect({ to: "/login", search: { redirect: "/owner/products" } });
+    // Non-owners too (INTERIM Quick Sales staff, decision 0004): /login sends staff to /quick-sales.
+    if (user?.role !== "owner")
+      throw redirect({ to: "/login", search: { redirect: "/owner/products" } });
     return { authUnavailable: false };
   },
   component: NewProduct,

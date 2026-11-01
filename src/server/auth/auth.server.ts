@@ -30,6 +30,7 @@ import { DatabaseUnavailableError } from "../db.server";
 import { loginAttemptModel } from "../models/login-attempt.server";
 import { sessionModel } from "../models/session.server";
 import { userModel, type UserRole } from "../models/user.server";
+import { hasPermission, type Permission } from "../../lib/permissions";
 import { createLoginLimiter, type LoginLimiter } from "./login-limiter.server";
 import {
   getDummyHash,
@@ -306,6 +307,46 @@ export function createAuthService(
       if (!user) throw new AuthError(NOT_SIGNED_IN);
       if (user.role !== "owner") throw new AuthError(NOT_ALLOWED);
       return user;
+    },
+
+    /**
+     * The signed-in user if their role has `permission` in the table (src/lib/permissions.ts,
+     * deny by default), or AuthError("Not signed in." / "Not allowed."). INTERIM (decision 0004).
+     */
+    async requirePermission(token: unknown, permission: Permission): Promise<AuthUser> {
+      const user = await resolveSession(token);
+      if (!user) throw new AuthError(NOT_SIGNED_IN);
+      if (!hasPermission(user.role, permission)) throw new AuthError(NOT_ALLOWED);
+      return user;
+    },
+
+    /**
+     * LOCAL SETUP ONLY (scripts/create-staff.ts). Never exposed as a server function. Creates an
+     * INTERIM Quick Sales staff account (decision 0004); refuses an email that already exists.
+     */
+    async createStaff(input: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+      const parsed = ownerSchema.safeParse(input);
+      if (!parsed.success) return { ok: false, error: "Enter a valid email and name." };
+      const policy = passwordPolicyError(parsed.data.password);
+      if (policy) return { ok: false, error: policy };
+      if (await db(() => Users.exists({ email: parsed.data.email })))
+        return { ok: false, error: "An account with that email already exists." };
+      const passwordHash = await hashPassword(parsed.data.password);
+      try {
+        await Users.create({
+          _id: `usr_${randomUUID()}`,
+          email: parsed.data.email,
+          name: parsed.data.name,
+          role: "staff",
+          passwordHash,
+          active: true,
+        });
+        return { ok: true };
+      } catch (e) {
+        if (typeof e === "object" && e !== null && "code" in e && e.code === 11000)
+          return { ok: false, error: "An account with that email already exists." };
+        throw new DatabaseUnavailableError("unavailable");
+      }
     },
 
     /**

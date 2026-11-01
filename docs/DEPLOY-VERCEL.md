@@ -66,6 +66,11 @@ Run these in the project folder on your own computer. The scripts read `MONGODB_
       email, single-owner and product indexes. It changes no data.
 - [ ] `bun run auth:create-owner` → enter your email, name and a **new** password (10–128
       characters, not used anywhere else).
+- [ ] Interim Quick Sales ([decision 0004](decisions/0004-interim-quick-sales.md)): for each staff
+      account, `bun run auth:create-staff` → their email, name and their own **new** password
+      (10–128 characters). Staff sign in at `/login` and can only use `/quick-sales`. Refuses an
+      email that already exists. **Note:** this deployment is for test data only (decision 0003);
+      real staff recording real shop sales here would be commercial use of the Hobby plan.
 - [ ] `unset MONGODB_URI` and close the terminal.
 
 ## 6. Vercel project
@@ -88,9 +93,14 @@ Run these in the project folder on your own computer. The scripts read `MONGODB_
 | `NITRO_PRESET`           | `vercel` (Vercel's `VERCEL=1` also selects it; explicit is clearer) | Production (build) |
 | `SECURITY_HSTS_MAX_AGE`  | **leave unset** (see step 8)                                        |                    |
 | `DB_HEALTHCHECK_ENABLED` | **leave unset**                                                     |                    |
+| `SUMMARY_API_TOKEN`      | output of `openssl rand -base64 32` (44 characters; ≥ 32 required)  | **Production**     |
 
 - [ ] Mark `MONGODB_URI` as **Sensitive**. Give it to **Production only**, so preview builds of
       other branches cannot reach the database.
+- [ ] Mark `SUMMARY_API_TOKEN` as **Sensitive**, **Production only**. Generate it on your own
+      computer with `openssl rand -base64 32`, paste it straight into Vercel and your password
+      manager (later: n8n's credential store), never into chat, code or commits. Without it, or
+      with fewer than 32 characters, `/api/daily-summary` answers 503 to everyone (fail closed).
 - [ ] Do **not** set `VERCEL` yourself (Vercel sets it). Never add any `VITE_*` variable holding
       a secret: `VITE_*` values are sent to the browser.
 
@@ -137,10 +147,20 @@ Things that could only be checked on a real deployment (decision 0003). Record t
 - [ ] **Cookie:** in the browser's dev tools, the session cookie is `__Host-luxe_session`,
       `Secure`, `HttpOnly`, `SameSite=Lax`.
 - [ ] **Sign out everywhere** works.
+- [ ] **Quick Sales (decision 0004):** sign in as a staff account → lands on `/quick-sales`;
+      record the change money, add a sale with decimals, cancel it. `/owner/products` and `/`
+      send staff back to `/quick-sales`. As the owner, `/owner/today` shows the day.
+- [ ] **Summary API:** `curl -s https://<app>.vercel.app/api/daily-summary` → 401
+      `{"error":"Not allowed."}`. With the token (typed from your password manager, not saved in
+      shell history) → the day's JSON:
+
+  ```sh
+  read -rs T && curl -s -H "Authorization: Bearer $T" https://<app>.vercel.app/api/daily-summary; unset T
+  ```
 
 ## When testing ends, or before any real use
 
-- [ ] Delete the Vercel project (or remove `MONGODB_URI`), and delete the Atlas test user (or
-      rotate its password).
+- [ ] Delete the Vercel project (or remove `MONGODB_URI` and `SUMMARY_API_TOKEN`), and delete the
+      Atlas test user (or rotate its password).
 - [ ] Revisit [decision 0003](decisions/0003-vercel-for-personal-testing.md) before the shop
       uses the app: host (Pro or VPS), Atlas network access, backups and trusted-proxy handling.

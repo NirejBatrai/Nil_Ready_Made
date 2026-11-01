@@ -10,9 +10,11 @@
  *   native submit can never put the password into a URL.
  * - "Sign out everywhere" ends every session of this account (other devices too), then shows the
  *   sign-in form again.
+ * - INTERIM Quick Sales staff (decision 0004) sign in here too and always land on /quick-sales:
+ *   after signing in, and whenever a signed-in staff user opens this page.
  */
 import { useEffect, useState, type FormEvent } from "react";
-import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useNavigate, useRouter } from "@tanstack/react-router";
 import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,11 +47,15 @@ export const Route = createFileRoute("/login")({
     ],
   }),
   loader: async () => {
+    let user: Awaited<ReturnType<typeof getCurrentUser>>;
     try {
-      return { user: await getCurrentUser(), unavailable: false };
+      user = await getCurrentUser();
     } catch {
       return { user: null, unavailable: true };
     }
+    // Staff have exactly one page.
+    if (user?.role === "staff") throw redirect({ to: "/quick-sales" });
+    return { user, unavailable: false };
   },
   component: LoginPage,
 });
@@ -75,7 +81,8 @@ function LoginPage() {
     try {
       const result = await login({ data: { email, password: attempt } });
       if (result.ok) {
-        if (returnTo === ALLOWED_REDIRECT) await navigate({ to: ALLOWED_REDIRECT });
+        if (result.user.role === "staff") await navigate({ to: "/quick-sales" });
+        else if (returnTo === ALLOWED_REDIRECT) await navigate({ to: ALLOWED_REDIRECT });
         else await router.invalidate();
       } else setError(friendlyAuthMessage(result.error));
     } catch (err) {
@@ -163,6 +170,13 @@ function LoginPage() {
               className="block text-center text-sm font-medium text-primary hover:underline"
             >
               Manage products (real data)
+            </Link>
+            <Link
+              to="/owner/today"
+              data-testid="owner-today-link"
+              className="block text-center text-sm font-medium text-primary hover:underline"
+            >
+              Quick sales by day
             </Link>
           </div>
         ) : (

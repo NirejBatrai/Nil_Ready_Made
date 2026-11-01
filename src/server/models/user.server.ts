@@ -1,11 +1,11 @@
 /**
- * SERVER-ONLY user account model. Only the owner role exists for now; the `role` field is kept so
- * employee accounts can be added later without migrating data.
+ * SERVER-ONLY user account model. Roles: `owner` (one) and `staff` (INTERIM Quick Sales accounts,
+ * decision 0004; retired when slice S9 lands). The 0002 `employee` role does not exist yet.
  * `passwordHash` is `select: false`: no query returns it unless it asks for `+passwordHash`.
  */
 import { Schema, type Connection, type HydratedDocument } from "mongoose";
 
-export const ROLES = ["owner"] as const;
+export const ROLES = ["owner", "staff"] as const;
 export type UserRole = (typeof ROLES)[number];
 
 export interface UserDoc {

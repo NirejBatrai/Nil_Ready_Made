@@ -59,11 +59,18 @@ src/
     owner.products.tsx    REAL product list, archive/restore → /owner/products (?view=archived)
     owner.products_.new.tsx REAL product creation       → /owner/products/new (trailing _ = not nested)
     owner.products_.$productId.edit.tsx REAL product edit → /owner/products/$productId/edit
+    quick-sales.tsx       INTERIM staff Quick Sales page → /quick-sales (decision 0004)
+    owner.today.tsx       INTERIM owner day view    → /owner/today (?date=YYYY-MM-DD)
+    api.daily-summary.ts  INTERIM server route      → GET /api/daily-summary (bearer token, n8n)
     dev.auth.tsx          Dev-only auth diagnostic      → /dev/auth (only "Not available." in production)
     dev.db-health.tsx     Dev-only DB diagnostic        → /dev/db-health
   lib/                    Browser-importable code
     auth.ts               Server functions: login, logout, getCurrentUser; requireOwner middleware
     products.ts           Server functions: get/list/create/edit/archive/restore products (owner only)
+    quick-sales.ts        INTERIM server functions: staff page, opening change, add, cancel; owner day view
+    permissions.ts        INTERIM permission table (owner/staff, deny by default) for requirePermission
+    bangkok-time.ts       Asia/Bangkok business day ("YYYY-MM-DD") and HH:mm, via Intl
+    staff-guard.ts        INTERIM: redirects staff sessions from the demo to /quick-sales
     server-errors.ts      safeErrors middleware + toSafeError
     db-health.ts          getDatabaseHealth (dev-only diagnostic)
     money.ts              REAL backend money: integer satang parser, ฿1,800.00 display, pricing rule
@@ -74,24 +81,27 @@ src/
     health.server.ts      Health check core
     security-headers.server.ts Baseline security headers, no-store, opt-in HSTS
     products.server.ts    Product service (validation, create, reads)
-    models/               Mongoose models: product, user, session, login-attempt
+    quick-sales.server.ts INTERIM Quick Sales service (opening change, sales, atomic own cancel, day totals)
+    summary-api.server.ts INTERIM /api/daily-summary: fail-closed bearer token, rate limit, JSON
+    models/               Mongoose models: product, user, session, login-attempt, quick-sale (opening_floats, quick_sales)
     auth/                 password (scrypt), auth core, login limiter (MongoDB), client address, cookie options, session-context (HTTP bridge)
     build-preset.server.ts Nitro preset for the build (node-server default, vercel for decision 0003)
   types/domain.ts         Shared domain types
   test/                   Vitest tests (see TESTING.md)
 scripts/                  Local-only CLI scripts run with Bun by the owner
   create-owner.ts         bun run auth:create-owner
+  create-staff.ts         bun run auth:create-staff (INTERIM Quick Sales staff accounts)
   setup-indexes.ts        bun run db:setup-indexes
 ```
 
 ## Demo vs real backend (critical separation)
 
-|          | Demo                                                                      | Real backend                                                |
-| -------- | ------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| Routes   | `/`, `/_shell/*` screens (`/pos`, `/products`, …)                         | `/login`, `/owner/products` (+ `/new`, `/$productId/edit`)  |
-| Data     | `localStorage` (`src/lib/repository`, `src/data/demo-seed.ts`), fictional | MongoDB via `src/server/*`                                  |
-| "Roles"  | Simulated Owner/Employee switch; `<OwnerOnly>` is **UI-only**             | Real session cookie checked by `requireOwner` on the server |
-| Security | None (any user can edit browser data)                                     | Server-enforced auth, validation, CSRF, unique indexes      |
+|          | Demo                                                                      | Real backend                                                                                                             |
+| -------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Routes   | `/`, `/_shell/*` screens (`/pos`, `/products`, `/sales`, …)               | `/login`, `/owner/products` (+ `/new`, `/$productId/edit`); interim `/quick-sales`, `/owner/today`, `/api/daily-summary` |
+| Data     | `localStorage` (`src/lib/repository`, `src/data/demo-seed.ts`), fictional | MongoDB via `src/server/*`                                                                                               |
+| "Roles"  | Simulated Owner/Employee switch; `<OwnerOnly>` is **UI-only**             | Real session cookie checked by `requireOwner` on the server                                                              |
+| Security | None (any user can edit browser data)                                     | Server-enforced auth, validation, CSRF, unique indexes                                                                   |
 
 The two never mix: real pages do not read demo data, demo screens do not call real server
 functions, and choosing a demo role creates no session (tested in E2E).
@@ -130,20 +140,28 @@ functions, and choosing a demo role creates no session (tested in E2E).
 
 ### Server functions (VERIFIED)
 
-| Function                 | Method | Middleware                   | Purpose                                                   |
-| ------------------------ | ------ | ---------------------------- | --------------------------------------------------------- |
-| `login`                  | POST   | `safeErrors`                 | Verify credentials, set session cookie                    |
-| `logout`                 | POST   | `safeErrors`                 | Delete session, clear cookie                              |
-| `signOutEverywhere`      | POST   | `safeErrors` + valid session | Delete all of the user's sessions, clear cookie           |
-| `getCurrentUser`         | GET    | `safeErrors`                 | Name and role only, or `null`                             |
-| `getProductForOwner`     | GET    | `safeErrors`, `requireOwner` | One product **including cost** (used only by `/dev/auth`) |
-| `listProductsForOwner`   | GET    | `safeErrors`, `requireOwner` | Active products, **never cost**                           |
-| `createProductForOwner`  | POST   | `safeErrors`, `requireOwner` | Create product; returns it **without cost**               |
-| `getProductForEditing`   | GET    | `safeErrors`, `requireOwner` | One product for the edit form, **without cost**           |
-| `updateProductForOwner`  | POST   | `safeErrors`, `requireOwner` | Edit allowed fields; returns it **without cost**          |
-| `archiveProductForOwner` | POST   | `safeErrors`, `requireOwner` | Set `active: false` (no delete exists)                    |
-| `restoreProductForOwner` | POST   | `safeErrors`, `requireOwner` | Set `active: true`                                        |
-| `getDatabaseHealth`      | GET    | `safeErrors`                 | Dev-only status word                                      |
+| Function                 | Method | Middleware                                                           | Purpose                                                                        |
+| ------------------------ | ------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `login`                  | POST   | `safeErrors`                                                         | Verify credentials, set session cookie                                         |
+| `logout`                 | POST   | `safeErrors`                                                         | Delete session, clear cookie                                                   |
+| `signOutEverywhere`      | POST   | `safeErrors` + valid session                                         | Delete all of the user's sessions, clear cookie                                |
+| `getCurrentUser`         | GET    | `safeErrors`                                                         | Name and role only, or `null`                                                  |
+| `getProductForOwner`     | GET    | `safeErrors`, `requireOwner`                                         | One product **including cost** (used only by `/dev/auth`)                      |
+| `listProductsForOwner`   | GET    | `safeErrors`, `requireOwner`                                         | Active products, **never cost**                                                |
+| `createProductForOwner`  | POST   | `safeErrors`, `requireOwner`                                         | Create product; returns it **without cost**                                    |
+| `getProductForEditing`   | GET    | `safeErrors`, `requireOwner`                                         | One product for the edit form, **without cost**                                |
+| `updateProductForOwner`  | POST   | `safeErrors`, `requireOwner`                                         | Edit allowed fields; returns it **without cost**                               |
+| `archiveProductForOwner` | POST   | `safeErrors`, `requireOwner`                                         | Set `active: false` (no delete exists)                                         |
+| `restoreProductForOwner` | POST   | `safeErrors`, `requireOwner`                                         | Set `active: true`                                                             |
+| `getDatabaseHealth`      | GET    | `safeErrors`                                                         | Dev-only status word                                                           |
+| `getQuickSalesPage`      | GET    | `safeErrors`, `requirePermission("quickSales.useOwn")`               | INTERIM: today's opening change exists? + own entries of the last 10 min (≤ 5) |
+| `recordOpeningFloat`     | POST   | `safeErrors`, `requirePermission("quickSales.recordOpeningFloat")`   | INTERIM: today's change money, once per business day                           |
+| `addQuickSale`           | POST   | `safeErrors`, `requirePermission("quickSales.add")`                  | INTERIM: item text, amount text, `cash`/`qr`                                   |
+| `cancelQuickSale`        | POST   | `safeErrors`, `requirePermission("quickSales.cancelOwn")`            | INTERIM: own sale, < 10 min, one atomic update                                 |
+| `getDayForOwner`         | GET    | `safeErrors`, `requirePermission("quickSales.viewDay")` (owner only) | INTERIM: one day's totals, expected cash, every sale with staff name           |
+
+`GET /api/daily-summary` is a **server route** (`server.handlers.GET`), not a server function:
+no cookies, no CSRF middleware; bearer token only (see [SECURITY.md](SECURITY.md)).
 
 ## Authentication flow
 
@@ -162,9 +180,11 @@ Details and parameters: [SECURITY.md](SECURITY.md).
 
 | Collection       | Model file                       | Key points                                                                                                                                                                                                                                                            |
 | ---------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `users`          | `models/user.server.ts`          | `role` enum is `owner` only; `passwordHash` `select:false`; unique email; `single_owner` partial unique index                                                                                                                                                         |
+| `users`          | `models/user.server.ts`          | `role` enum is `owner`, `staff` (interim); `passwordHash` `select:false`; unique email; `single_owner` partial unique index                                                                                                                                           |
 | `login_attempts` | `models/login-attempt.server.ts` | `_id` = `<kind>\|<key>`; `entries` (attempt id + time) inside the window; `expiresAt` with TTL index `login_attempt_expiry`; written only by atomic updates in `login-limiter.server.ts`                                                                              |
 | `sessions`       | `models/session.server.ts`       | `_id` = SHA-256 of token; `expiresAt` with TTL cleanup index; `userId` index; optional `createdIp`, `userAgent` (≤ 256), `lastSeenAt`; at most 5 per user                                                                                                             |
+| `opening_floats` | `models/quick-sale.server.ts`    | INTERIM: `_id` = Bangkok business day (one per day by the built-in unique `_id`), `amountSatang` ≥ 0, `userId`, `createdAt`                                                                                                                                           |
+| `quick_sales`    | `models/quick-sale.server.ts`    | INTERIM: `itemText` (1–100), `amountSatang` > 0, `payment` `cash`/`qr`, `userId`, server-set `createdAt` and `businessDay`, `cancelled`, `cancelledAt`; no secondary indexes; kept 5 years                                                                            |
 | `products`       | `models/product.server.ts`       | Integer-satang money (`priceSatang`, per-product `minimumSellingPriceSatang`, `costSatang` `select:false`, each ≤ ฿10,000,000.00); embedded variants (`sku`, `barcode`, `openingStock`, `stock`); optimistic concurrency; query updates touching pricing are rejected |
 
 Product indexes (case-insensitive collation `{ locale: "en", strength: 2 }`, all unique):
@@ -186,6 +206,18 @@ are created **only** by `bun run db:setup-indexes`; requests never create indexe
   (whole satang, bounds, minimum ≤ price) and the Mongoose schema.
 - Display: `formatSatang`, always two decimals (`฿1,800.00`, `฿1,800.50`).
 - The demo (`src/lib/calc.ts`, `src/types/domain.ts`) keeps whole baht in the browser only.
+- Interim Quick Sales (decision 0004): the browser sends the typed text (`amountText`) and the
+  **server** parses it with `parseBahtToSatang`; stored as `amountSatang`; totals are integer sums.
+
+## Data flow: interim Quick Sales (decision 0004)
+
+`/login` (staff) → `/quick-sales` → `getQuickSalesPage` → `recordOpeningFloat` (until today's
+exists) → `addQuickSale` / `cancelQuickSale` (each: POST, CSRF, `safeErrors` →
+`requirePermission` → `createQuickSalesService(conn)`, user from the session, time and business
+day from the server clock). `/owner/today` → `getDayForOwner`. n8n → `GET /api/daily-summary` →
+`handleDailySummary` (token check, `summary_api` limiter, `daySummary`). The business day is the
+calendar date in `Asia/Bangkok` (`src/lib/bangkok-time.ts`); it changes at midnight Bangkok
+time.
 
 ## Data flow: creating a product
 

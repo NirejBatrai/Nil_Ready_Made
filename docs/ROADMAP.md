@@ -4,7 +4,7 @@ Status labels: **DONE** (verified in code/tests), **PENDING** (not started), **P
 (discussed, not approved). Every new phase or sub-step needs the owner's **explicit approval**
 before implementation, even if it is listed here. Approval of one step does not approve the next.
 
-_Last updated 2026-11-01._ This file supersedes the root `roadmap.md` (demo-era checklist).
+_Last updated 2026-11-01 (interim Quick Sales)._ This file supersedes the root `roadmap.md` (demo-era checklist).
 
 **Runtime target: a Node.js server** (Node LTS), not Cloudflare Workers. See
 [decisions/0001-runtime-node-not-workers.md](decisions/0001-runtime-node-not-workers.md).
@@ -35,6 +35,7 @@ Workers-specific statements elsewhere in the docs are historical.
 | Step 5c — Vercel variant for personal testing (decision 0003): `x-vercel-forwarded-for` on Vercel only, login limits in MongoDB (TTL, fail closed), `vercel` build preset with static-file headers | DONE (not deployed) | Committed 2026-10-31; deploy = owner's [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md) |
 | Product edit and archive UI — `/owner/products/$productId/edit`, archive (confirmation) / restore, Archived view; owner-only server functions; no delete | DONE | Committed 2026-10-31 |
 | Step 4 — time-boxed Workers runtime test (local workerd, branch `spike/workers-runtime`, not merged) | DONE | Result: move to a Node server, [decision 0001](decisions/0001-runtime-node-not-workers.md) |
+| **Interim Quick Sales** (TEMPORARY, [decision 0004](decisions/0004-interim-quick-sales.md)): `staff` role, `requirePermission` table, `auth:create-staff`, staff page `/quick-sales`, owner page `/owner/today`, `GET /api/daily-summary` (bearer token) | DONE (temporary) | Committed 2026-11-01; **retires when slice S9 lands** (see below); not deployed |
 
 ## Required before any real deployment
 
@@ -42,6 +43,14 @@ Workers-specific statements elsewhere in the docs are historical.
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ----------------------------- |
 | **Trusted-proxy handling for the chosen host.** Behind Cloudflare proxy or Tunnel, all requests share one address and the per-address limit becomes a global lockout. (Also: HSTS is never sent when the proxy forwards plain `http`.) Design pending the hosting choice. | Hosting choice | New step approval             |
 | **Run `bun run db:setup-indexes` as part of every deploy** (session TTL cleanup, unique email, single owner, product indexes). Without the TTL index expired sessions (with their IP/User-Agent) are never deleted.                                                       | Hosting choice | Owner runs it (real database) |
+
+## Retirement of interim Quick Sales (when slice S9 lands)
+
+Quick Sales ([decision 0004](decisions/0004-interim-quick-sales.md)) bridges about two weeks until
+products and stock are ready. When S9 (real sales) lands, as its own approved step: remove
+`/quick-sales`, `/owner/today`, the Quick Sales server functions and the `staff` role; replace or
+remove `/api/daily-summary` and `SUMMARY_API_TOKEN`; deactivate or convert staff accounts per S2.
+Keep `opening_floats` and `quick_sales` (5-year retention) or import them into S9 sales.
 
 ## Pending (none approved)
 

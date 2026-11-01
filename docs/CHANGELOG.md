@@ -4,6 +4,70 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-11-01 — Interim Quick Sales (decision 0004, temporary)
+
+A temporary sales notebook for about two weeks, until products and stock are ready. **Retires
+when slice S9 lands** ([decision 0004](decisions/0004-interim-quick-sales.md)). It is separate
+from the accepted 0002 design, which is unchanged. **All money is integer satang; never floats.**
+
+- **Staff role:** `users.role` now allows `staff`. `bun run auth:create-staff`
+  (`scripts/create-staff.ts`, same safety as `auth:create-owner`; the owner runs it).
+  `createStaff` refuses existing emails. Staff sign in at `/login` and always land on
+  `/quick-sales`; they are redirected away from `/login`, `/`, the demo screens and every
+  `/owner` page.
+- **Permissions:** `src/lib/permissions.ts` (owner/staff table, deny by default) and
+  `requirePermission(permission)` in `src/lib/auth.ts`. Staff may only: see their own page,
+  record today's opening change, add a quick sale, and cancel their own sale within 10 minutes.
+  The product functions keep `requireOwner` (refuses staff).
+- **Data:** `opening_floats` (`_id` = Bangkok business day, so one per day) and `quick_sales`
+  (`itemText` 1–100, `amountSatang` > 0, `payment` `cash`/`qr`, `userId`, server-set
+  `createdAt` and `businessDay`, `cancelled`, `cancelledAt`). Cancel is one atomic update (own,
+  < 10 minutes, not cancelled). Business day = calendar date in `Asia/Bangkok`
+  (`src/lib/bangkok-time.ts`). Amounts are parsed on the server with `parseBahtToSatang`.
+- **Pages:**
+  - `/quick-sales` (staff, mobile-first): opening-change form until today's exists, then Item,
+    Amount (฿), Cash / QR, Add, "Saved ✓", and the last 5 own entries of the past 10 minutes
+    with Cancel. No totals, no history, no links.
+  - `/owner/today` (owner only): date picker (default today in Bangkok), opening change, total,
+    Cash, QR, count, cancelled, expected cash = opening + Cash, and every sale (time, item,
+    amount, payment, staff, status). Linked from the owner's signed-in card on `/login`.
+- **API:** `GET /api/daily-summary?date=YYYY-MM-DD` (`src/server/summary-api.server.ts`). Bearer
+  `SUMMARY_API_TOKEN` only; constant-time comparison; fails closed (503) when missing or shorter
+  than 32 characters; no cookies; failures rate-limited per address with the MongoDB limiter
+  (kind `summary_api`, 10 per 15 minutes). `.env.example` documents `openssl rand -base64 32`.
+- **Staff URL:** the spec asked for `/sales`, but the demo already owns `/sales`; with the
+  owner's choice the staff page is `/quick-sales`, and the demo is unchanged.
+- **Existing files touched:**
+  - `src/server/models/user.server.ts`: the `staff` role.
+  - `src/server/auth/auth.server.ts`: `requirePermission` and `createStaff`.
+  - `src/server/auth/session-context.server.ts`: `requirePermissionFromCookie`.
+  - `src/lib/auth.ts`: the `requirePermission` middleware.
+  - `src/server/auth/login-limiter.server.ts`: the `summary_api` limiter kind (type only).
+  - `src/routes/login.tsx`: staff are sent to `/quick-sales`; owner link to `/owner/today`.
+  - `src/routes/index.tsx`, `src/routes/_shell.tsx`: staff are redirected away from the demo.
+  - `src/routes/owner.products_.new.tsx`: non-owners are sent to `/login`. Before, staff saw
+    the empty form; the server already refused the create.
+  - `src/routeTree.gen.ts`: regenerated in an isolated copy.
+  - `package.json`: the `auth:create-staff` script; no dependency changes.
+  - `.env.example`: `SUMMARY_API_TOKEN=`.
+  - `src/test/auth.e2e.test.ts`: the Quick Sales block, the staff accounts and a throwaway
+    token.
+  - Docs: SECURITY, DEPLOY-VERCEL, ROADMAP, ARCHITECTURE, TESTING, PROJECT_STATUS and this file.
+- **Tests:**
+  - `quick-sales.test.ts`, `quick-sales-server-fns.test.ts` and `summary-api.test.ts`: 41 new
+    tests.
+  - 11 new E2E tests.
+  - `bun run test`: 332 passed, 0 failed, 57 skipped.
+  - `bun run test:e2e`: 55 passed, 0 failed, 1 skipped.
+  - Typecheck and format check: exit 0.
+  - Lint: 0 errors (11 old warnings).
+- **Mutation checks** (each restored byte-identical, all caught): staff granted `viewDay`,
+  `requirePermission` skipping the table, token comparison always true, no 32-character minimum,
+  `userId` removed from the cancel filter, the staff list not limited to own sales, and totals
+  added to the staff page. Details: [TESTING.md](TESTING.md#proving-protections-required-for-security-changes).
+- **Not done by agents:** no staff account, no token set, nothing deployed, nothing run against a
+  real database.
+
 ## 2026-11-01 — Money in integer satang
 
 **All money is integer satang; never floats.** Required before slice S9 (decision 0002).

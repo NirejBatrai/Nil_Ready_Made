@@ -1,6 +1,6 @@
 # Security
 
-_VERIFIED against the source and tests on 2026-10-23 (updated 2026-10-24) unless marked otherwise._
+_VERIFIED against the source and tests on 2026-10-23 (updated 2026-10-24; interim Quick Sales 2026-11-01) unless marked otherwise._
 The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every task.
 
 ## Threat boundaries
@@ -22,7 +22,7 @@ The prohibited-actions list in [../AGENTS.md](../AGENTS.md) applies to every tas
 
 | Item             | Implementation                                                                                                                                                                                                                             |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Accounts         | One owner (`users.role` enum is `["owner"]`); DB index `single_owner` allows only one                                                                                                                                                      |
+| Accounts         | One owner (`users.role` enum is `["owner", "staff"]`); DB index `single_owner` allows only one owner. `staff` is the INTERIM Quick Sales role (decision 0004), see below                                                                   |
 | Owner creation   | **Local only**: `bun run auth:create-owner` (hidden password prompt; refuses if an owner exists). No public registration route or server function exists.                                                                                  |
 | Password hashing | Node `crypto.scrypt`, N=2^15, r=8, p=3, 16-byte salt, 64-byte key, `timingSafeEqual`; stored as `scrypt$N$r$p$salt$key`; out-of-bounds stored params rejected                                                                              |
 | Password policy  | 10–128 characters (NFKC-normalized)                                                                                                                                                                                                        |
@@ -155,6 +155,8 @@ the TTL index when the session expires (at most 7 days after login).
 
 ## Authorization
 
+- **INTERIM Quick Sales** (decision 0004) uses `requirePermission(<permission>)` instead; see
+  [Interim Quick Sales](#interim-quick-sales-staff-role-and-api-token-decision-0004).
 - `requireOwner` (in `src/lib/auth.ts`) must be on every sensitive server function, **after**
   `safeErrors`: `.middleware([safeErrors, requireOwner])`. It throws "Not signed in." /
   "Not allowed.".
@@ -168,6 +170,74 @@ the TTL index when the session expires (at most 7 days after login).
   it (E2E-checked with distinctive values). Products are archived, never deleted (no delete
   server function exists; unit-tested).
 
+## Interim Quick Sales: staff role and API token (decision 0004)
+
+_VERIFIED 2026-11-01 in source, unit tests (`quick-sales.test.ts`,
+`quick-sales-server-fns.test.ts`, `summary-api.test.ts`) and E2E. Temporary: retires when slice
+S9 of decision 0002 lands._
+
+**Staff role**
+
+- `users.role` allows `staff`. Staff accounts are created only by the owner on their own computer
+  with `bun run auth:create-staff` (hidden password prompt, same password policy and scrypt hash
+  as the owner, refuses an existing email). There is no web route or server function for it.
+- Staff sign in at `/login` with email and password (same limits, sessions and cookie as the
+  owner) and are always sent to `/quick-sales`: after signing in, and whenever they open
+  `/login`, `/`, any demo screen or any `/owner` page.
+- **Permission table** (`src/lib/permissions.ts`), checked by `requirePermission` on every call
+  (session and user re-read, like `requireOwner`). **Deny by default**: an unknown role or a
+  permission not listed is refused with "Not allowed.".
+
+  | Permission                      | owner | staff |
+  | ------------------------------- | ----- | ----- |
+  | `quickSales.useOwn`             | yes   | yes   |
+  | `quickSales.recordOpeningFloat` | yes   | yes   |
+  | `quickSales.add`                | yes   | yes   |
+  | `quickSales.cancelOwn`          | yes   | yes   |
+  | `quickSales.viewDay`            | yes   | no    |
+
+- Every product server function keeps `requireOwner`, which refuses every role except `owner`:
+  staff get "Not allowed." from all seven (unit-tested and E2E-replayed with a staff cookie).
+- **Staff responses never contain totals, other people's sales, user ids or names.** The staff
+  page's data is built field by field (`toStaffSale`) from the caller's own sales only (query
+  filter `userId` from the session). Leak tests use distinctive values for other users' sales
+  and the day's totals.
+- The user, the time and the Bangkok business day are always set by the server. Inputs with any
+  other field (`userId`, `businessDay`, `createdAt`, `cancelled`, …) are refused (Zod
+  `.strict()`). Amounts are parsed on the server from the typed text (`parseBahtToSatang`).
+- **Cancel** is one atomic `findOneAndUpdate` whose filter requires: this id, this user, not
+  cancelled, created less than 10 minutes ago. Someone else's sale, an old one, an unknown id
+  and an already cancelled one all get the same message ("This sale can no longer be
+  cancelled."), so nothing is revealed.
+- **Opening change money**: `_id` is the business day, so MongoDB's own unique `_id` refuses a
+  second one, also under simultaneous requests (unit-tested with 5 at once).
+- Staff are kept out of the browser demo by a redirect on `/` and the demo layout
+  (`src/lib/staff-guard.ts`). It fails closed (to `/quick-sales`) if the session cannot be
+  checked. This is navigation, not access control: the demo has no real data.
+- A staff account is disabled by setting `active: false` in the database (no page yet); its
+  sessions stop working immediately.
+
+**`GET /api/daily-summary` (for n8n, later)**
+
+- Authorization is **only** `Authorization: Bearer <SUMMARY_API_TOKEN>`. Cookies and sessions are
+  never read (a signed-in owner without the token gets 401; source-checked).
+- **Fails closed**: if `SUMMARY_API_TOKEN` is missing, not a string or shorter than 32
+  characters, every request gets 503 "Not configured." without touching the database.
+- **Constant-time comparison**: SHA-256 of both values, compared with `timingSafeEqual` (equal
+  32-byte digests, so neither content nor length leaks through timing).
+- **Rate limit on failures**: every attempt is counted before the comparison, atomically, in the
+  existing MongoDB limiter (`login_attempts`, kind `summary_api`, own keys). A correct token
+  un-counts its attempt, so only failures accumulate: **10 per 15 minutes per client address**
+  (IPv4, or IPv6 /64, address as for login). Then 429 for that address, the correct token
+  included, until the window passes. Requests without a known address share one key. Limiter or
+  database errors answer 503 (fail closed).
+- It is a server route, not a server function: the CSRF middleware does not apply. It is `GET`,
+  changes nothing except the attempt counters, and needs the token. Responses carry the security
+  headers and `Cache-Control: no-store` (E2E-checked) and never echo the token.
+- Generate the token with `openssl rand -base64 32` (44 characters). Set it only in the host's
+  environment (Vercel: **Production only, Sensitive**). Never commit it; `.env.example` lists the
+  name with no value.
+
 ## CSRF and request safety
 
 - `src/start.ts` applies `createCsrfMiddleware` to all server functions
@@ -176,7 +246,8 @@ the TTL index when the session expires (at most 7 days after login).
   `allowRequestsWithoutOriginCheck`.
 - State-changing server functions use `POST` (`login`, `logout`, `signOutEverywhere`,
   `createProductForOwner`, `updateProductForOwner`, `archiveProductForOwner`,
-  `restoreProductForOwner`).
+  `restoreProductForOwner`, and the interim `recordOpeningFloat`, `addQuickSale`,
+  `cancelQuickSale`).
 - Forms use `method="post"` and keep their submit button disabled until React hydrates, so a
   native submit can never put values (e.g. passwords) into a URL.
 - `/login?redirect=` accepts **only** `/owner/products`; anything else is dropped (no open redirect).
@@ -286,7 +357,9 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
 ## Secrets and configuration
 
 - `.env*` and `.dev.vars` are git-ignored; `.env.example` (committed) lists `MONGODB_URI=`,
-  `DB_HEALTHCHECK_ENABLED=` and `SECURITY_HSTS_MAX_AGE=` with **no values**.
+  `DB_HEALTHCHECK_ENABLED=`, `SECURITY_HSTS_MAX_AGE=` and `SUMMARY_API_TOKEN=` with **no values**.
+- `SUMMARY_API_TOKEN` is read only in `src/server/summary-api.server.ts`, at call time, and never
+  logged.
 - Never prefix secrets with `VITE_` — the build config exposes `VITE_*` values to the browser.
 - In application code, `MONGODB_URI` is read only in `src/server/db.server.ts` at call time and
   never logged. The opt-in `test:db` test (`db.integration.test.ts`) also reads it from the
@@ -339,7 +412,9 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
   (on Workers it would have been one connection per request; historical).
 - No full Content-Security-Policy (only `frame-ancestors`); HSTS not enabled anywhere yet.
 - No audit log of logins or product changes yet.
-- No password reset; no employee accounts.
+- No password reset; no employee accounts (0002). The interim `staff` accounts (decision 0004)
+  have no disable page, no audit log and normal 7-day sessions.
+- Quick Sales item text is free text typed by staff; totals are only as good as what is typed.
 - Production cookie needs HTTPS; hosting, Atlas network access and backups are undecided.
 - Driver-level writes (`Model.collection.*`, `bulkWrite`) bypass Mongoose hooks; app code does
   not use them for products (tests use them only to simulate bad data).
