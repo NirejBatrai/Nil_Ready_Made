@@ -60,6 +60,24 @@ and its totals.
 5. **Owner page `/owner/today`** (owner only): a date picker (default today, Bangkok), the opening
    change, total, Cash, QR, number of sales, number cancelled, expected cash (opening + Cash
    sales) and the full list (time, item, amount, payment, staff, cancelled).
+
+   **Owner actions (owner decision, amended 2026-11-01)**, each with a required reason
+   (1–200 characters, one line) and a confirmation dialog, and each enforced on the server by
+   `requirePermission` with owner-only permissions (`quickSales.cancelAny`,
+   `quickSales.remove`; the role is re-read from the database on every request):
+   - **Cancel any sale** (any age, any staff member). Records `cancelledBy`, `cancelledAt` and
+     `cancelReason`. The staff rule is unchanged: own sales only, under 10 minutes.
+   - **Remove** any sale or the day's opening change: a **soft delete** that sets `removed`,
+     `removedBy`, `removedAt` and `removeReason`. Removed entries count toward no total and
+     appear in no list (owner, staff, `/api/daily-summary`); "Show removed" on `/owner/today`
+     shows them greyed out with who, when and why.
+   - **Restore** a removed entry (records `restoredBy`, `restoredAt`; the last removal's fields
+     stay on the record).
+   - Removing the opening change lets staff record a new one that day. Because the opening
+     change's `_id` is the business day (one active per day), the new one is written in the same
+     document by one atomic update, and the removed one is kept in that document's `replaced`
+     list. A replaced opening change is shown under "Show removed" but cannot be restored.
+
 6. **API for n8n (later):** `GET /api/daily-summary?date=YYYY-MM-DD` (default today, Bangkok),
    authorized only by `Authorization: Bearer <SUMMARY_API_TOKEN>` from the host environment.
    Constant-time comparison; fails closed when the variable is missing or shorter than 32
@@ -67,6 +85,10 @@ and its totals.
    the existing MongoDB limiter.
 
 ## Data retention
+
+**Sales records are never hard-deleted.** Nothing in the app deletes a Quick Sales or opening
+change document: "remove" is a soft delete, so the audit trail and the 5-year retention below
+always hold. Removing only hides an entry from totals and lists.
 
 Quick Sales records are business records: they are **kept 5 years** after their business day
 (the same rule as 0002 O13, to confirm with an accountant). Nothing deletes them automatically.

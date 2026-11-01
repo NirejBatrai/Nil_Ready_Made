@@ -4,6 +4,65 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-11-01 — Quick Sales: owner cancel and soft-remove
+
+Owner decision, recorded in [decision 0004](decisions/0004-interim-quick-sales.md) (amended).
+**Sales records are never hard-deleted.**
+
+- **Owner cancel:** any sale, any age, any staff member, with a reason (1–200 characters).
+  Records `cancelledBy`, `cancelledAt` and `cancelReason`. The staff rule is unchanged.
+- **Owner remove (soft delete):** any sale or the day's opening change, with a reason. Sets
+  `removed`, `removedBy`, `removedAt` and `removeReason`; nothing is deleted. Removed entries
+  are left out of all totals, the owner list, the staff list and `/api/daily-summary`.
+  **Restore** sets `removed: false` plus `restoredBy` / `restoredAt`.
+- **Opening change after removal:** staff can record a new one the same day. One atomic update
+  writes it into the day's document (`_id` is still the day, so there is still one active
+  opening change per day) and keeps the removed one in `replaced`. A replaced one can't be
+  restored.
+- **`/owner/today`:** Cancel and Remove on each sale and "Remove opening change", each through
+  a confirmation dialog that needs a reason. A "Show removed" switch lists removed entries
+  greyed out, with who, when and why, plus Restore. An owner-cancel reason is shown in the
+  Status column.
+- **Server:** new owner-only permissions `quickSales.cancelAny` and `quickSales.remove`. New
+  server functions `ownerCancelQuickSale`, `removeQuickSaleEntry` and `restoreQuickSaleEntry`,
+  each running `safeErrors` then `requirePermission`, which re-reads the user's role from the
+  database on every call.
+- **Data:** new optional fields on `quick_sales` and `opening_floats` (see above). Documents
+  without them count as not removed (`removed: { $ne: true }`). No index or migration is
+  needed.
+- **Files:**
+  - `src/server/models/quick-sale.server.ts`
+  - `src/server/quick-sales.server.ts`
+  - `src/lib/quick-sales.ts`
+  - `src/lib/permissions.ts`
+  - `src/routes/owner.today.tsx`
+  - Tests: `quick-sales.test.ts`, `quick-sales-server-fns.test.ts`, `summary-api.test.ts`,
+    `auth.e2e.test.ts`
+  - Docs: decision 0004, `SECURITY.md`, `PROJECT_STATUS.md`, this file
+- **Tests:**
+  - Staff can't owner-cancel, remove or restore anything (server, also replayed in E2E).
+  - Staff still can't cancel others' or older sales.
+  - An owner demoted to staff in the database is refused at once.
+  - Owner cancel, remove and restore work. A reason is required.
+  - Removed entries are excluded from totals, the staff list, the owner list and the API.
+  - The opening change can be re-recorded after removal; 3 simultaneous attempts store exactly
+    one.
+  - Bad kinds, ids and query objects are refused.
+  - E2E covers the dialog, the reason gate, Show removed and Restore.
+- **Results:**
+  - `bun run test`: 349 passed, 0 failed, 58 skipped.
+  - `bun run test:e2e`: 56 passed, 0 failed, 1 skipped (passed in 3 consecutive runs).
+  - Typecheck and format check: exit 0.
+  - Lint: 0 errors (the 11 old warnings remain).
+- **Mutation checks** (one at a time, file restored byte-identical each time, control run 54/54
+  passed):
+  - Remove/restore guarded by a staff permission: 3 tests failed.
+  - Owner cancel guarded by a staff permission: 3 tests failed.
+  - Staff given the owner permissions in the table: 3 tests failed.
+  - Removed sales no longer excluded from the day: 4 tests failed.
+- **Fixed during testing:** a test listed two sales created at the same instant, so their order
+  depended on random ids. They now get distinct times.
+
 ## 2026-11-01 — Quick Sales: staff see their own sales for today
 
 Owner decision, recorded in [decision 0004](decisions/0004-interim-quick-sales.md) (amended).

@@ -222,6 +222,14 @@ S9 of decision 0002 lands._
   cancelled, created less than 10 minutes ago. Someone else's sale, an old one, an unknown id
   and an already cancelled one all get the same message ("This sale can no longer be
   cancelled."), so nothing is revealed.
+- **Owner actions** (0004, amended 2026-11-01): `ownerCancelQuickSale`
+  (`quickSales.cancelAny`), `removeQuickSaleEntry` and `restoreQuickSaleEntry`
+  (`quickSales.remove`). Only the owner role has these permissions. The role is re-read from the
+  database on every call, so an owner demoted to staff is refused at once (unit-tested). Staff
+  get "Not allowed." (unit-tested and E2E-replayed with a staff cookie). Each action is one
+  atomic update. A reason (1–200 characters, one line) is required for cancel and remove.
+  **Remove is a soft delete; nothing is ever deleted.** Removed entries are filtered out of
+  every total, the owner list, the staff list and `/api/daily-summary`.
 - **Opening change money**: `_id` is the business day, so MongoDB's own unique `_id` refuses a
   second one, also under simultaneous requests (unit-tested with 5 at once).
 - Staff are kept out of the browser demo by a redirect on `/` and the demo layout

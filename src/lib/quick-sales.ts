@@ -6,6 +6,9 @@
  * - Staff functions act only as the signed-in user (from the session, never from the request)
  *   and return only that user's own entries: never totals or other people's sales.
  * - `getDayForOwner` needs `quickSales.viewDay`, which only the owner has.
+ * - Owner actions: `ownerCancelQuickSale` needs `quickSales.cancelAny`; `removeQuickSaleEntry`
+ *   and `restoreQuickSaleEntry` need `quickSales.remove`. Only the owner has them. The role is
+ *   re-read from the database on every call (the middleware loads the user each time).
  * - Input validators never throw: anything unexpected is passed on as-is or becomes `null`, and
  *   the service refuses it.
  *
@@ -87,4 +90,46 @@ export const getDayForOwner = createServerFn({ method: "GET" })
       const q = createQuickSalesService(conn);
       return q.ownerDay(data ?? q.today());
     });
+  });
+
+/** OWNER ONLY: `{ saleId, reason }`; cancels any sale (any age, any staff member). */
+export const ownerCancelQuickSale = createServerFn({ method: "POST" })
+  .middleware([safeErrors, requirePermission("quickSales.cancelAny")])
+  .inputValidator(untrusted)
+  .handler(async ({ data, context }) => {
+    const [{ database }, { createQuickSalesService }] = await Promise.all([
+      import("@/server/db.server"),
+      import("@/server/quick-sales.server"),
+    ]);
+    return database.withDatabase((conn) =>
+      createQuickSalesService(conn).ownerCancelSale({ id: context.user.id }, data),
+    );
+  });
+
+/** OWNER ONLY: `{ kind: "sale" | "opening", id, reason }`; a soft delete, never a hard delete. */
+export const removeQuickSaleEntry = createServerFn({ method: "POST" })
+  .middleware([safeErrors, requirePermission("quickSales.remove")])
+  .inputValidator(untrusted)
+  .handler(async ({ data, context }) => {
+    const [{ database }, { createQuickSalesService }] = await Promise.all([
+      import("@/server/db.server"),
+      import("@/server/quick-sales.server"),
+    ]);
+    return database.withDatabase((conn) =>
+      createQuickSalesService(conn).removeEntry({ id: context.user.id }, data),
+    );
+  });
+
+/** OWNER ONLY: `{ kind: "sale" | "opening", id }`; restores a removed entry. */
+export const restoreQuickSaleEntry = createServerFn({ method: "POST" })
+  .middleware([safeErrors, requirePermission("quickSales.remove")])
+  .inputValidator(untrusted)
+  .handler(async ({ data, context }) => {
+    const [{ database }, { createQuickSalesService }] = await Promise.all([
+      import("@/server/db.server"),
+      import("@/server/quick-sales.server"),
+    ]);
+    return database.withDatabase((conn) =>
+      createQuickSalesService(conn).restoreEntry({ id: context.user.id }, data),
+    );
   });

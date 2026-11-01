@@ -116,6 +116,8 @@ describe("permission table (deny by default)", () => {
     "quickSales.add",
     "quickSales.cancelOwn",
     "quickSales.viewDay",
+    "quickSales.cancelAny",
+    "quickSales.remove",
   ];
 
   it("staff may only use their own page, record the opening change, add and cancel their own", () => {
@@ -127,7 +129,8 @@ describe("permission table (deny by default)", () => {
         "quickSales.useOwn",
       ].sort(),
     );
-    expect(hasPermission("staff", "quickSales.viewDay")).toBe(false);
+    for (const p of ["quickSales.viewDay", "quickSales.cancelAny", "quickSales.remove"] as const)
+      expect(hasPermission("staff", p), p).toBe(false);
   });
 
   it("the owner has every permission", () => {
@@ -212,6 +215,12 @@ describe("opening change money", () => {
         amountSatang: 100050,
         userId: ALICE.id,
         createdAt: new Date(MORNING),
+        removed: false,
+        removedBy: null,
+        removedAt: null,
+        removeReason: null,
+        restoredBy: null,
+        restoredAt: null,
         __v: 0,
       },
     ]);
@@ -547,6 +556,230 @@ describe("the day for the owner and the API", () => {
       cancelledCount: 0,
       expectedCashSatang: 0,
       sales: [],
+      removed: { openingFloats: [], sales: [] },
+    });
+  });
+});
+
+describe("owner actions: cancel any sale, soft-remove and restore (never a hard delete)", () => {
+  const OWNER = { id: "usr_owner" };
+  const BAD_REASONS: unknown[] = ["", "   ", "x".repeat(201), "two\nlines", "tab\there", 5, null];
+
+  it("owner cancel: any age, any staff member; records who, when and the trimmed reason", async () => {
+    await opened();
+    const bobs = await added(BOB);
+    clock = MORNING + 5 * 60 * MIN; // five hours later: far past the staff 10-minute rule
+    expect(await q.cancelOwnSale(BOB, bobs.id)).toEqual({
+      ok: false,
+      error: QUICK_SALE_ERRORS.cannotCancel,
+    });
+    expect(
+      await q.ownerCancelSale(OWNER, { saleId: bobs.id, reason: "  Customer returned it  " }),
+    ).toEqual({ ok: true });
+    expect(await quickSaleModel(conn).findById(bobs.id).lean()).toMatchObject({
+      cancelled: true,
+      cancelledAt: new Date(MORNING + 5 * 60 * MIN),
+      cancelledBy: OWNER.id,
+      cancelReason: "Customer returned it",
+      removed: false,
+    });
+    // Already cancelled: refused, unchanged.
+    expect(await q.ownerCancelSale(OWNER, { saleId: bobs.id, reason: "Again" })).toEqual({
+      ok: false,
+      error: QUICK_SALE_ERRORS.ownerCannotCancel,
+    });
+    const day = await q.ownerDay("2026-11-01");
+    expect(day.sales[0]).toMatchObject({ cancelled: true, cancelReason: "Customer returned it" });
+    expect(day).toMatchObject({ count: 0, cancelledCount: 1, totalSatang: 0 });
+  });
+
+  it("a reason (1–200 characters, one line) is required for cancel and remove", async () => {
+    await opened();
+    const s = await added(BOB);
+    for (const reason of BAD_REASONS) {
+      expect(await q.ownerCancelSale(OWNER, { saleId: s.id, reason }), String(reason)).toEqual({
+        ok: false,
+        error: QUICK_SALE_ERRORS.reason,
+      });
+      for (const [kind, id] of [
+        ["sale", s.id],
+        ["opening", "2026-11-01"],
+      ])
+        expect(
+          await q.removeEntry(OWNER, { kind, id, reason }),
+          `${kind} ${String(reason)}`,
+        ).toEqual({ ok: false, error: QUICK_SALE_ERRORS.reason });
+    }
+    expect((await q.ownerCancelSale(OWNER, { saleId: s.id })).ok).toBe(false);
+    expect((await q.removeEntry(OWNER, { kind: "sale", id: s.id })).ok).toBe(false);
+    expect(await quickSaleModel(conn).findById(s.id).lean()).toMatchObject({
+      cancelled: false,
+      removed: false,
+    });
+    expect(await openingFloatModel(conn).findById("2026-11-01").lean()).toMatchObject({
+      removed: false,
+    });
+    expect((await q.ownerCancelSale(OWNER, { saleId: s.id, reason: "x".repeat(200) })).ok).toBe(
+      true,
+    );
+  });
+
+  it("remove is a soft delete: the document stays; removed sales count nowhere and nobody lists them", async () => {
+    await opened();
+    const kept = await added(ALICE, { itemText: "Kept", amountText: "100" });
+    const gone = await added(ALICE, { itemText: "Gone", amountText: "2222", payment: "qr" });
+    clock = MORNING + 1000; // distinct times, so the order is fixed
+    const goneCancelled = await added(BOB, { itemText: "Gone too", amountText: "3" });
+    await q.cancelOwnSale(BOB, goneCancelled.id);
+    clock = MORNING + MIN;
+    for (const id of [gone.id, goneCancelled.id])
+      expect(await q.removeEntry(OWNER, { kind: "sale", id, reason: "Typed twice" })).toEqual({
+        ok: true,
+      });
+    // Never deleted.
+    expect(await quickSaleModel(conn).countDocuments()).toBe(3);
+    expect(await quickSaleModel(conn).findById(gone.id).lean()).toMatchObject({
+      removed: true,
+      removedBy: OWNER.id,
+      removedAt: new Date(MORNING + MIN),
+      removeReason: "Typed twice",
+      itemText: "Gone",
+      amountSatang: 222200,
+    });
+    // Staff list.
+    expect((await q.staffPage(ALICE)).sales.map((s) => s.id)).toEqual([kept.id]);
+    expect((await q.staffPage(BOB)).sales).toEqual([]);
+    // Totals and the API summary.
+    const summary = await q.daySummary("2026-11-01");
+    expect(summary).toMatchObject({
+      totalSatang: 10000,
+      cashSatang: 10000,
+      qrSatang: 0,
+      count: 1,
+      cancelledCount: 0,
+    });
+    expect(summary.sales.map((s) => s.itemText)).toEqual(["Kept"]);
+    // Owner list: only under "removed", with who, when and why.
+    const day = await q.ownerDay("2026-11-01");
+    expect(day.sales.map((s) => s.id)).toEqual([kept.id]);
+    expect(day.expectedCashSatang).toBe(50000 + 10000);
+    expect(day.removed.sales).toEqual([
+      expect.objectContaining({
+        id: gone.id,
+        itemText: "Gone",
+        removedByName: "Unknown",
+        removedAt: "2026-11-01 10:01",
+        reason: "Typed twice",
+      }),
+      expect.objectContaining({ id: goneCancelled.id, cancelled: true }),
+    ]);
+    // A removed sale cannot be cancelled (owner or staff) or removed again.
+    expect((await q.ownerCancelSale(OWNER, { saleId: gone.id, reason: "x" })).ok).toBe(false);
+    expect((await q.cancelOwnSale(ALICE, gone.id)).ok).toBe(false);
+    expect(await q.removeEntry(OWNER, { kind: "sale", id: gone.id, reason: "x" })).toEqual({
+      ok: false,
+      error: QUICK_SALE_ERRORS.cannotRemove,
+    });
+  });
+
+  it("restore brings a removed sale back into the totals and lists; restoring twice is refused", async () => {
+    await opened();
+    const s = await added(ALICE, { amountText: "700" });
+    await q.removeEntry(OWNER, { kind: "sale", id: s.id, reason: "Oops" });
+    expect((await q.daySummary("2026-11-01")).totalSatang).toBe(0);
+    clock = MORNING + 2 * MIN;
+    expect(await q.restoreEntry(OWNER, { kind: "sale", id: s.id })).toEqual({ ok: true });
+    expect((await q.daySummary("2026-11-01")).totalSatang).toBe(70000);
+    expect((await q.staffPage(ALICE)).sales.map((x) => x.id)).toEqual([s.id]);
+    expect((await q.ownerDay("2026-11-01")).removed.sales).toEqual([]);
+    expect(await quickSaleModel(conn).findById(s.id).lean()).toMatchObject({
+      removed: false,
+      restoredBy: OWNER.id,
+      restoredAt: new Date(MORNING + 2 * MIN),
+      // The last removal stays on record.
+      removeReason: "Oops",
+    });
+    expect(await q.restoreEntry(OWNER, { kind: "sale", id: s.id })).toEqual({
+      ok: false,
+      error: QUICK_SALE_ERRORS.cannotRestore,
+    });
+  });
+
+  it("removing the opening change: excluded from totals; staff may record a new one that day", async () => {
+    await opened("500");
+    await added(ALICE, { amountText: "100" });
+    expect(
+      await q.removeEntry(OWNER, { kind: "opening", id: "2026-11-01", reason: "Wrong amount" }),
+    ).toEqual({ ok: true });
+    expect(await q.daySummary("2026-11-01")).toMatchObject({ openingFloatSatang: null });
+    expect((await q.ownerDay("2026-11-01")).expectedCashSatang).toBe(10000);
+    expect((await q.staffPage(BOB)).hasOpeningFloat).toBe(false);
+    expect(await q.addSale(BOB, sale())).toEqual({
+      ok: false,
+      error: QUICK_SALE_ERRORS.openingMissing,
+    });
+    // While it is removed it can be restored...
+    expect(await q.restoreEntry(OWNER, { kind: "opening", id: "2026-11-01" })).toEqual({
+      ok: true,
+    });
+    expect((await q.daySummary("2026-11-01")).openingFloatSatang).toBe(50000);
+    await q.removeEntry(OWNER, { kind: "opening", id: "2026-11-01", reason: "Wrong amount" });
+    // ...or replaced: simultaneous attempts record exactly one new amount.
+    clock = MORNING + 3 * MIN;
+    const results = await Promise.all(
+      ["600", "601", "602"].map((amountText) => q.recordOpeningFloat(BOB, { amountText })),
+    );
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect((await q.recordOpeningFloat(ALICE, { amountText: "1" })).ok).toBe(false);
+    const stored = await openingFloatModel(conn).find().lean();
+    expect(stored).toHaveLength(1); // never deleted: the old one is kept in `replaced`
+    expect(stored[0]).toMatchObject({
+      _id: "2026-11-01",
+      userId: BOB.id,
+      createdAt: new Date(MORNING + 3 * MIN),
+      removed: false,
+      removedBy: null,
+      replaced: [
+        {
+          amountSatang: 50000,
+          userId: ALICE.id,
+          createdAt: new Date(MORNING),
+          removedBy: OWNER.id,
+          removeReason: "Wrong amount",
+        },
+      ],
+    });
+    expect((await q.staffPage(BOB)).hasOpeningFloat).toBe(true);
+    expect((await q.addSale(BOB, sale())).ok).toBe(true);
+    const day = await q.ownerDay("2026-11-01");
+    expect([60000, 60100, 60200]).toContain(day.openingFloatSatang);
+    expect(day.removed.openingFloats).toEqual([
+      expect.objectContaining({ amountSatang: 50000, reason: "Wrong amount", canRestore: false }),
+    ]);
+    // A replaced one cannot be restored; the current one is not removed.
+    expect((await q.restoreEntry(OWNER, { kind: "opening", id: "2026-11-01" })).ok).toBe(false);
+  });
+
+  it("bad kinds, ids and query objects are refused without changing anything", async () => {
+    await opened();
+    const s = await added(ALICE);
+    for (const input of [
+      { kind: "user", id: s.id, reason: "x" },
+      { kind: "sale", id: { $ne: null }, reason: "x" },
+      { kind: "sale", id: "qs_x", reason: "x" },
+      { kind: "opening", id: "2026-02-30", reason: "x" },
+      { kind: "opening", id: { $gt: "" }, reason: "x" },
+      { kind: "sale", id: s.id, reason: "x", removedBy: "usr_fake" },
+      null,
+      "x",
+    ]) {
+      expect((await q.removeEntry(OWNER, input)).ok, JSON.stringify(input)).toBe(false);
+      expect((await q.restoreEntry(OWNER, input)).ok, JSON.stringify(input)).toBe(false);
+    }
+    expect((await q.ownerCancelSale(OWNER, { saleId: { $ne: null }, reason: "x" })).ok).toBe(false);
+    expect(await quickSaleModel(conn).findById(s.id).lean()).toMatchObject({
+      removed: false,
+      cancelled: false,
     });
   });
 });

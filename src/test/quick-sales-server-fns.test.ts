@@ -34,7 +34,10 @@ import {
   cancelQuickSale,
   getDayForOwner,
   getQuickSalesPage,
+  ownerCancelQuickSale,
   recordOpeningFloat,
+  removeQuickSaleEntry,
+  restoreQuickSaleEntry,
 } from "@/lib/quick-sales";
 import { bangkokDay } from "@/lib/bangkok-time";
 
@@ -224,6 +227,9 @@ describe("staff are refused on the server everywhere except their four Quick Sal
       [addQuickSale, { itemText: "A", amountText: "1", payment: "cash" }],
       [cancelQuickSale, "qs_x"],
       [getDayForOwner, null],
+      [ownerCancelQuickSale, { saleId: "qs_x", reason: "x" }],
+      [removeQuickSaleEntry, { kind: "sale", id: "qs_x", reason: "x" }],
+      [restoreQuickSaleEntry, { kind: "sale", id: "qs_x" }],
     ] as const;
     for (const token of [undefined, "A".repeat(43), "inactive"] as const) {
       if (token === "inactive") {
@@ -244,9 +250,20 @@ describe("staff are refused on the server everywhere except their four Quick Sal
       source.match(
         /\.middleware\(\[safeErrors, requirePermission\("quickSales\.[A-Za-z]+"\)\]\)/g,
       ) ?? [];
-    expect(fns.length).toBe(5);
+    expect(fns.length).toBe(8);
     expect(guarded.length).toBe(fns.length);
     expect(source).toContain('requirePermission("quickSales.viewDay")');
+    // The owner actions use the owner-only permissions.
+    for (const [fn, permission] of [
+      ["ownerCancelQuickSale", "quickSales.cancelAny"],
+      ["removeQuickSaleEntry", "quickSales.remove"],
+      ["restoreQuickSaleEntry", "quickSales.remove"],
+    ] as const)
+      expect(source).toMatch(
+        new RegExp(
+          `export const ${fn} = createServerFn\\(\\{ method: "POST" \\}\\)\\s*\\.middleware\\(\\[safeErrors, requirePermission\\("${permission.replace(".", "\\.")}"\\)\\]\\)`,
+        ),
+      );
   });
 });
 
@@ -303,6 +320,133 @@ describe("the staff flow through the real middleware", () => {
     expect(await quickSaleModel(conn).findById(r.sale.id).lean()).toMatchObject({
       cancelled: false,
     });
+  });
+});
+
+describe("owner actions through the real middleware (owner only, role re-read every call)", () => {
+  const today = () => bangkokDay(new Date());
+  async function setup() {
+    await as("som", recordOpeningFloat, { amountText: "100" });
+    const mine = (await as("som", addQuickSale, {
+      itemText: "Som's sale",
+      amountText: "10",
+      payment: "cash",
+    })) as { sale: { id: string } };
+    const theirs = (await as("noi", addQuickSale, {
+      itemText: "Noi's sale",
+      amountText: "20",
+      payment: "qr",
+    })) as { sale: { id: string } };
+    return { mine: mine.sale.id, theirs: theirs.sale.id };
+  }
+  const unchanged = async () => {
+    expect(
+      await quickSaleModel(conn).countDocuments({
+        $or: [{ cancelled: true }, { removed: true }],
+      }),
+    ).toBe(0);
+    expect(await openingFloatModel(conn).findById(today()).lean()).toMatchObject({
+      removed: false,
+    });
+  };
+
+  it("staff cannot owner-cancel, remove or restore anything, not even their own: 'Not allowed.'", async () => {
+    const { mine, theirs } = await setup();
+    await quickSaleModel(conn).updateOne({ _id: theirs }, { $set: { removed: true } });
+    for (const staff of ["som", "noi"] as const) {
+      state.token = tokens[staff];
+      for (const [name, fn, data] of [
+        ["ownerCancel mine", ownerCancelQuickSale, { saleId: mine, reason: "x" }],
+        ["ownerCancel theirs", ownerCancelQuickSale, { saleId: theirs, reason: "x" }],
+        ["remove sale", removeQuickSaleEntry, { kind: "sale", id: mine, reason: "x" }],
+        ["remove opening", removeQuickSaleEntry, { kind: "opening", id: today(), reason: "x" }],
+        ["restore sale", restoreQuickSaleEntry, { kind: "sale", id: theirs }],
+        ["restore opening", restoreQuickSaleEntry, { kind: "opening", id: today() }],
+      ] as const) {
+        const { result, error } = await call(fn, data);
+        expect(errorMessage(error), `${staff} ${name}`).toBe("Not allowed.");
+        expect(result, `${staff} ${name}`).toBeUndefined();
+      }
+    }
+    await quickSaleModel(conn).updateOne({ _id: theirs }, { $set: { removed: false } });
+    await unchanged();
+  });
+
+  it("staff still cannot cancel someone else's sale or an own sale older than 10 minutes", async () => {
+    const { mine, theirs } = await setup();
+    expect(await as("som", cancelQuickSale, theirs)).toMatchObject({ ok: false });
+    await quickSaleModel(conn).updateOne(
+      { _id: mine },
+      { $set: { createdAt: new Date(Date.now() - 11 * 60 * 1000) } },
+    );
+    expect(await as("som", cancelQuickSale, mine)).toMatchObject({ ok: false });
+    await unchanged();
+  });
+
+  it("the role is re-read from the database: an owner demoted to staff is refused at once", async () => {
+    const { theirs } = await setup();
+    await userModel(conn).updateOne({ _id: ids.owner }, { $set: { role: "staff" } });
+    try {
+      state.token = tokens.owner;
+      for (const [fn, data] of [
+        [ownerCancelQuickSale, { saleId: theirs, reason: "x" }],
+        [removeQuickSaleEntry, { kind: "sale", id: theirs, reason: "x" }],
+        [restoreQuickSaleEntry, { kind: "sale", id: theirs }],
+      ] as const)
+        expect(errorMessage((await call(fn, data)).error)).toBe("Not allowed.");
+      await unchanged();
+    } finally {
+      await userModel(conn).updateOne({ _id: ids.owner }, { $set: { role: "owner" } });
+    }
+  });
+
+  it("the owner cancels any staff member's sale and removes/restores sales and the opening change", async () => {
+    const { mine, theirs } = await setup();
+    expect(await as("owner", ownerCancelQuickSale, { saleId: theirs, reason: "Returned" })).toEqual(
+      { ok: true },
+    );
+    expect(await as("owner", ownerCancelQuickSale, { saleId: mine, reason: "" })).toEqual({
+      ok: false,
+      error: "Enter a reason (1–200 characters, no line breaks).",
+    });
+    expect(
+      await as("owner", removeQuickSaleEntry, { kind: "sale", id: mine, reason: "Duplicate" }),
+    ).toEqual({ ok: true });
+    expect(
+      await as("owner", removeQuickSaleEntry, { kind: "opening", id: today(), reason: "Wrong" }),
+    ).toEqual({ ok: true });
+    expect(await quickSaleModel(conn).findById(theirs).lean()).toMatchObject({
+      cancelled: true,
+      cancelledBy: ids.owner,
+      cancelReason: "Returned",
+    });
+    expect(await quickSaleModel(conn).findById(mine).lean()).toMatchObject({
+      removed: true,
+      removedBy: ids.owner,
+      removeReason: "Duplicate",
+    });
+    const day = (await as("owner", getDayForOwner, null)) as {
+      sales: { cancelledByName: string | null }[];
+      removed: { sales: { removedByName: string }[]; openingFloats: unknown[] };
+      openingFloatSatang: number | null;
+    };
+    expect(day.openingFloatSatang).toBeNull();
+    expect(day.sales).toEqual([expect.objectContaining({ cancelledByName: "Fn Owner" })]);
+    expect(day.removed.sales).toEqual([expect.objectContaining({ removedByName: "Fn Owner" })]);
+    expect(day.removed.openingFloats).toHaveLength(1);
+    // Staff see neither the removed sale nor an opening change; they may record a new one.
+    expect(await as("som", getQuickSalesPage)).toEqual({ hasOpeningFloat: false, sales: [] });
+    expect(await as("noi", recordOpeningFloat, { amountText: "300" })).toEqual({ ok: true });
+    expect(await as("owner", restoreQuickSaleEntry, { kind: "sale", id: mine })).toEqual({
+      ok: true,
+    });
+    expect(await as("som", getQuickSalesPage)).toMatchObject({
+      hasOpeningFloat: true,
+      sales: [{ id: mine }],
+    });
+    // Never deleted.
+    expect(await quickSaleModel(conn).countDocuments()).toBe(2);
+    expect(await openingFloatModel(conn).countDocuments()).toBe(1);
   });
 });
 

@@ -1528,11 +1528,15 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         const rows = await owner.getByTestId("today-row").allTextContents();
         expect(rows).toHaveLength(4);
         const row = (item: string) => rows.find((r) => r.includes(item)) ?? "";
-        // Time, item, amount, payment, staff, status.
-        expect(row("Silk scarf")).toMatch(/^\d\d:\d\dSilk scarf฿1,800\.50CashE2E StaffOK$/);
-        expect(row("Linen bag")).toMatch(/^\d\d:\d\dLinen bag฿2,500\.00QRE2E Staff TwoOK$/);
-        expect(row("Belt")).toMatch(/^\d\d:\d\dBelt฿99\.99QRE2E StaffCancelled$/);
-        expect(row("Old item")).toMatch(/^\d\d:\d\dOld item฿10\.00CashE2E StaffOK$/);
+        // Time, item, amount, payment, staff, status, owner actions.
+        expect(row("Silk scarf")).toMatch(
+          /^\d\d:\d\dSilk scarf฿1,800\.50CashE2E StaffOKCancel Remove$/,
+        );
+        expect(row("Linen bag")).toMatch(
+          /^\d\d:\d\dLinen bag฿2,500\.00QRE2E Staff TwoOKCancel Remove$/,
+        );
+        expect(row("Belt")).toMatch(/^\d\d:\d\dBelt฿99\.99QRE2E StaffCancelled Remove$/);
+        expect(row("Old item")).toMatch(/^\d\d:\d\dOld item฿10\.00CashE2E StaffOKCancel Remove$/);
         // The date picker: an earlier day is empty.
         await owner.getByTestId("today-date").fill("2026-01-15");
         await owner.waitForURL(`${base}/owner/today?date=2026-01-15`);
@@ -1580,6 +1584,129 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
           })),
         });
         expect(kept.map((s) => s.itemText)).toEqual(["Old item", "Silk scarf", "Linen bag"]);
+      });
+
+      it("the owner cancels and soft-removes with a reason and a confirmation; Show removed; Restore; staff are refused", async () => {
+        await owner.goto(`${base}/owner/today`, { waitUntil: "networkidle" });
+        await owner.getByTestId("today-sales").waitFor();
+        const stat = (id: string) => owner.getByTestId(id).textContent();
+        const rowOf = (item: string) => owner.getByTestId("today-row").filter({ hasText: item });
+        const confirmBtn = owner.getByTestId("today-dialog-confirm");
+        const dialogClosed = () =>
+          owner.getByRole("alertdialog").waitFor({ state: "detached", timeout: 10_000 });
+        // Cancel another staff member's sale: a reason is required before Confirm works.
+        await rowOf("Linen bag").getByTestId("today-cancel").click();
+        await owner.getByTestId("today-reason").waitFor();
+        expect(await confirmBtn.isDisabled()).toBe(true);
+        await owner.getByTestId("today-reason").fill("   ");
+        expect(await confirmBtn.isDisabled()).toBe(true);
+        await owner.getByTestId("today-reason").fill("Customer returned it");
+        await confirmBtn.click();
+        await dialogClosed();
+        await expect.poll(() => rowOf("Linen bag").textContent()).toContain("Customer returned it");
+        expect(await rowOf("Linen bag").getByTestId("today-cancel").count()).toBe(0);
+        await expect.poll(() => stat("today-total")).toBe("฿1,810.50");
+        expect(await stat("today-cancelled")).toBe("2");
+        expect(await sales().findOne({ itemText: "Linen bag" }).lean()).toMatchObject({
+          cancelled: true,
+          cancelReason: "Customer returned it",
+          cancelledBy: expect.stringMatching(/^usr_/),
+        });
+        // "Back" closes the dialog without doing anything.
+        await rowOf("Silk scarf").getByTestId("today-remove").click();
+        await owner.getByTestId("today-dialog-keep").click();
+        await dialogClosed();
+        expect(await sales().countDocuments({ removed: true })).toBe(0);
+        // Remove (soft delete) an own staff sale.
+        await rowOf("Old item").getByTestId("today-remove").click();
+        await owner.getByTestId("today-reason").fill("Typed by mistake");
+        await confirmBtn.click();
+        await dialogClosed();
+        await expect.poll(() => rowOf("Old item").count()).toBe(0);
+        expect(await stat("today-total")).toBe("฿1,800.50");
+        expect(await stat("today-expected-cash")).toBe("฿2,800.50");
+        expect(await sales().findOne({ itemText: "Old item" }).lean()).toMatchObject({
+          removed: true,
+          removeReason: "Typed by mistake",
+        });
+        // Show removed: greyed out, with who, when and why.
+        expect(await owner.getByTestId("today-removed").count()).toBe(0);
+        await owner.getByTestId("today-show-removed").click();
+        const removedRow = owner.getByTestId("today-removed-row").filter({ hasText: "Old item" });
+        await expect
+          .poll(() => removedRow.textContent())
+          .toMatch(/Removed by .+: Typed by mistake/);
+        // Staff no longer see it; the API leaves it out.
+        await staff.reload({ waitUntil: "networkidle" });
+        await staff.getByTestId("qs-sale-form").waitFor();
+        expect(await staff.getByTestId("qs-recent").textContent()).not.toContain("Old item");
+        const api = async () =>
+          (await (
+            await fetch(`${base}/api/daily-summary`, {
+              headers: { authorization: `Bearer ${SUMMARY_TOKEN}` },
+            })
+          ).json()) as { totalSatang: number; count: number; openingFloatSatang: number | null };
+        expect(await api()).toMatchObject({ totalSatang: 180050, count: 1 });
+        // Remove the opening change: staff may record a new one the same day.
+        await owner.getByTestId("today-remove-opening").click();
+        await owner.getByTestId("today-reason").fill("Recounted the bag");
+        await confirmBtn.click();
+        await dialogClosed();
+        await expect.poll(() => stat("today-opening")).toBe("Not recorded");
+        expect((await api()).openingFloatSatang).toBeNull();
+        await staff.reload({ waitUntil: "networkidle" });
+        await staff.getByTestId("qs-opening-form").waitFor();
+        await staff.waitForSelector('[data-testid="qs-opening-save"]:not([disabled])');
+        await staff.getByTestId("qs-opening").fill("900");
+        await staff.getByTestId("qs-opening-save").click();
+        await staff.getByTestId("qs-sale-form").waitFor();
+        await owner.reload({ waitUntil: "networkidle" });
+        await owner.getByTestId("today-sales").waitFor();
+        expect(await stat("today-opening")).toBe("฿900.00");
+        await owner.getByTestId("today-show-removed").click();
+        await expect
+          .poll(() =>
+            owner
+              .getByTestId("today-removed-row")
+              .filter({ hasText: "Opening change" })
+              .textContent(),
+          )
+          .toMatch(/฿1,000\.00.*Recounted the bag.*replaced by a newer opening change/);
+        // Staff replaying the owner's requests are refused; nothing changes.
+        const cookie = await cookieOf(staffCtx);
+        for (const name of ["ownerCancelQuickSale", "removeQuickSaleEntry"]) {
+          const req = requests.filter((r) => fnName(r.url).startsWith(`${name}_`)).at(-1);
+          if (!req) throw new Error(`no captured ${name} request`);
+          expect((await replay(req, { origin: "same", cookie })).text, name).toContain(
+            "Not allowed.",
+          );
+        }
+        // Restore the removed sale: it counts again.
+        await owner
+          .getByTestId("today-removed-row")
+          .filter({ hasText: "Old item" })
+          .getByTestId("today-restore")
+          .click();
+        await expect.poll(() => rowOf("Old item").count()).toBe(1);
+        expect(await stat("today-total")).toBe("฿1,810.50");
+        const restoreReq = requests
+          .filter((r) => fnName(r.url).startsWith("restoreQuickSaleEntry_"))
+          .at(-1);
+        if (!restoreReq) throw new Error("no captured restore request");
+        expect((await replay(restoreReq, { origin: "same", cookie })).text).toContain(
+          "Not allowed.",
+        );
+        // Nothing was ever deleted.
+        expect(await sales().countDocuments()).toBe(4);
+        expect(await sales().findOne({ itemText: "Old item" }).lean()).toMatchObject({
+          removed: false,
+          restoredBy: expect.stringMatching(/^usr_/),
+        });
+        // The staff page still shows no totals or other people's sales.
+        await staff.reload({ waitUntil: "networkidle" });
+        const html = await staff.content();
+        for (const forbidden of ["Linen bag", "Customer returned it", "Recounted", "Total"])
+          expect(html, forbidden).not.toContain(forbidden);
       });
 
       it("failed API attempts are rate-limited per address: 10 failures, then 429 even with the token", async () => {

@@ -229,6 +229,53 @@ describe("the summary", () => {
     expect(JSON.stringify(r.body)).not.toMatch(/usr_|userId|qs_|Belt/);
   });
 
+  it("removed entries are left out: totals, counts, the list and the opening change", async () => {
+    clock = MORNING;
+    const q = createQuickSalesService(conn, { now });
+    const owner = { id: "usr_owner" };
+    await q.recordOpeningFloat({ id: "usr_a" }, { amountText: "500" });
+    await q.addSale({ id: "usr_a" }, { itemText: "Kept", amountText: "100", payment: "cash" });
+    const gone = await q.addSale(
+      { id: "usr_b" },
+      { itemText: "REMOVED-ITEM", amountText: "4444", payment: "qr" },
+    );
+    const goneCancelled = await q.addSale(
+      { id: "usr_b" },
+      { itemText: "REMOVED-CANCELLED", amountText: "1", payment: "cash" },
+    );
+    if (!gone.ok || !goneCancelled.ok) throw new Error("setup");
+    await q.cancelOwnSale({ id: "usr_b" }, goneCancelled.sale.id);
+    for (const id of [gone.sale.id, goneCancelled.sale.id])
+      expect(await q.removeEntry(owner, { kind: "sale", id, reason: "Test entry" })).toEqual({
+        ok: true,
+      });
+    expect(
+      await q.removeEntry(owner, { kind: "opening", id: "2026-11-01", reason: "Miscounted" }),
+    ).toEqual({ ok: true });
+    clock = Date.now();
+    const r = await get(bearer(TOKEN), "?date=2026-11-01");
+    expect(r.body).toEqual({
+      date: "2026-11-01",
+      openingFloatSatang: null,
+      totalSatang: 10000,
+      cashSatang: 10000,
+      qrSatang: 0,
+      count: 1,
+      cancelledCount: 0,
+      sales: [{ time: "10:00", itemText: "Kept", amountSatang: 10000, payment: "cash" }],
+    });
+    expect(JSON.stringify(r.body)).not.toMatch(/REMOVED|444400|Miscounted|Test entry|removed/);
+    // Restored, the sale counts again.
+    clock = MORNING;
+    expect(await q.restoreEntry(owner, { kind: "sale", id: gone.sale.id })).toEqual({ ok: true });
+    clock = Date.now();
+    expect((await get(bearer(TOKEN), "?date=2026-11-01")).body).toMatchObject({
+      totalSatang: 454400,
+      qrSatang: 444400,
+      count: 2,
+    });
+  });
+
   it("defaults to today in Bangkok; a bad date is 400 (after the token check)", async () => {
     clock = Date.UTC(2026, 10, 1, 17, 0, 0); // midnight in Bangkok: already 2026-11-02
     expect((await get(bearer(TOKEN))).body).toMatchObject({ date: "2026-11-02", count: 0 });

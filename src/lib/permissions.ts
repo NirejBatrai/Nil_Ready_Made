@@ -10,14 +10,18 @@
  */
 
 export type Permission =
-  /** See whether today's opening change exists and one's OWN entries of the last 10 minutes. */
+  /** See whether today's opening change exists and ALL of one's OWN sales of today, no totals. */
   | "quickSales.useOwn"
   | "quickSales.recordOpeningFloat"
   | "quickSales.add"
   /** Cancel one's OWN sale within 10 minutes (the service checks owner and age atomically). */
   | "quickSales.cancelOwn"
   /** A whole day: totals, expected cash and every sale with its staff name. */
-  | "quickSales.viewDay";
+  | "quickSales.viewDay"
+  /** OWNER: cancel ANY sale (any age, any staff member), with a reason. */
+  | "quickSales.cancelAny"
+  /** OWNER: soft-remove and restore any sale or the day's opening change, with a reason. */
+  | "quickSales.remove";
 
 export const ROLE_PERMISSIONS: Readonly<Record<string, readonly Permission[]>> = {
   owner: [
@@ -26,6 +30,8 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, readonly Permission[]>> =
     "quickSales.add",
     "quickSales.cancelOwn",
     "quickSales.viewDay",
+    "quickSales.cancelAny",
+    "quickSales.remove",
   ],
   staff: [
     "quickSales.useOwn",
