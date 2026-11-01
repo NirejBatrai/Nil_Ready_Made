@@ -31,8 +31,6 @@ import {
 import { userModel } from "./models/user.server";
 
 export const CANCEL_WINDOW_MS = 10 * 60 * 1000;
-/** The staff page lists at most this many of the caller's own entries (of the last 10 minutes). */
-export const RECENT_LIMIT = 5;
 
 export const QUICK_SALE_ERRORS = {
   input: "Enter the item, the amount and Cash or QR.",
@@ -65,7 +63,8 @@ export interface StaffSale {
 
 export interface StaffPage {
   hasOpeningFloat: boolean;
-  recent: StaffSale[];
+  /** ALL of the caller's OWN sales of today's Bangkok business day, newest first. No totals. */
+  sales: StaffSale[];
 }
 
 /** The day as `/api/daily-summary` returns it (non-cancelled sales only, oldest first). */
@@ -171,22 +170,23 @@ export function createQuickSalesService(conn: Connection, deps: { now?: () => Da
     /** Today's business day on the server clock, "YYYY-MM-DD" (Asia/Bangkok). */
     today: () => bangkokDay(now()),
 
-    /** STAFF: whether today's opening change exists, and the caller's OWN recent entries. */
+    /**
+     * STAFF: whether today's opening change exists, and ALL of the caller's OWN sales of today's
+     * Bangkok business day (cancelled ones included), newest first. Owner decision, 0004: never
+     * other people's sales, never totals or counts; `canCancel` only under 10 minutes.
+     */
     async staffPage(actor: Actor): Promise<StaffPage> {
       const at = now();
-      const [opening, recent] = await Promise.all([
-        db(() => OpeningFloats.exists({ _id: bangkokDay(at) })),
+      const day = bangkokDay(at);
+      const [opening, sales] = await Promise.all([
+        db(() => OpeningFloats.exists({ _id: day })),
         db(() =>
-          Sales.find({
-            userId: actor.id,
-            createdAt: { $gt: new Date(at.getTime() - CANCEL_WINDOW_MS) },
-          })
+          Sales.find({ userId: actor.id, businessDay: day })
             .sort({ createdAt: -1, _id: -1 })
-            .limit(RECENT_LIMIT)
             .lean(),
         ),
       ]);
-      return { hasOpeningFloat: opening !== null, recent: recent.map((s) => toStaffSale(s, at)) };
+      return { hasOpeningFloat: opening !== null, sales: sales.map((s) => toStaffSale(s, at)) };
     },
 
     /** STAFF: today's opening change money. A second one for the same day is refused. */

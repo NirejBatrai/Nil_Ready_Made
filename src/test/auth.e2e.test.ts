@@ -1259,13 +1259,26 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       };
       const cookieOf = async (ctx: BrowserContext) =>
         (await ctx.cookies()).find((c) => c.name === COOKIE)?.value ?? "";
+      const selected = async (p: Page) => ({
+        cash: await p.getByTestId("qs-cash").getAttribute("aria-pressed"),
+        qr: await p.getByTestId("qs-qr").getAttribute("aria-pressed"),
+      });
       const addSale = async (p: Page, item: string, amount: string, pay: "cash" | "qr") => {
-        await p.waitForSelector('[data-testid="qs-add"]:not([disabled])');
+        await p.waitForSelector('[data-testid="qs-cash"]:not([disabled])');
         await p.getByTestId("qs-item").fill(item);
         await p.getByTestId("qs-amount").fill(amount);
         await p.getByTestId(`qs-${pay}`).click();
+        const other = pay === "cash" ? "qr" : "cash";
+        expect(await selected(p)).toEqual({ [pay]: "true", [other]: "false" });
+        expect(await p.getByTestId(`qs-${pay}`).locator("svg").count()).toBe(1); // check mark
+        expect(await p.getByTestId(`qs-${other}`).locator("svg").count()).toBe(0);
         await p.getByTestId("qs-add").click();
         await p.getByTestId("qs-saved").waitFor();
+        // After Add: item, amount and payment are all cleared; Add is disabled again.
+        expect(await p.getByTestId("qs-item").inputValue()).toBe("");
+        expect(await p.getByTestId("qs-amount").inputValue()).toBe("");
+        expect(await selected(p)).toEqual({ cash: "false", qr: "false" });
+        expect(await p.getByTestId("qs-add").isDisabled()).toBe(true);
       };
       const sales = () => {
         if (!conn) throw new Error("no test db");
@@ -1330,20 +1343,37 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
       });
 
       it("adds sales with decimals: Saved ✓ and the own entry listed; bad input saves nothing", async () => {
+        // A fresh page: payment is never preselected, so Add is disabled.
+        await staff.waitForSelector('[data-testid="qs-cash"]:not([disabled])');
+        expect(await selected(staff)).toEqual({ cash: "false", qr: "false" });
+        expect(await staff.getByTestId("qs-add").isDisabled()).toBe(true);
         await addSale(staff, "Silk scarf", "1,800.50", "cash");
         const rows = staff.getByTestId("qs-recent-row");
         await expect.poll(() => rows.count()).toBe(1);
         expect(await rows.first().textContent()).toMatch(/Silk scarf.*Cash · ฿1,800\.50/);
-        // No payment chosen.
+        expect(await staff.getByText("Your sales today").isVisible()).toBe(true);
+        // Add is disabled until item, amount and payment are all set.
+        const add = staff.getByTestId("qs-add");
         await staff.getByTestId("qs-item").fill("No payment");
+        expect(await add.isDisabled()).toBe(true);
         await staff.getByTestId("qs-amount").fill("10");
-        await staff.getByTestId("qs-add").click();
-        await expect
-          .poll(() => staff.getByTestId("qs-error").textContent())
-          .toBe("Choose Cash or QR.");
+        expect(await add.isDisabled()).toBe(true);
+        await staff.getByTestId("qs-item").fill("   ");
+        await staff.getByTestId("qs-qr").click();
+        expect(await add.isDisabled()).toBe(true);
+        await staff.getByTestId("qs-item").fill("No payment");
+        expect(await add.isDisabled()).toBe(false);
+        // Without a payment the server refuses it too (the Silk scarf request replayed with an
+        // empty payment).
+        const lastAdd = requests.filter((r) => fnName(r.url).startsWith("addQuickSale")).at(-1);
+        if (!lastAdd?.body) throw new Error("no captured add request");
+        const noPay = { ...lastAdd, body: lastAdd.body.replace('"cash"', '""') };
+        expect(noPay.body).not.toContain('"cash"');
+        expect(
+          (await replay(noPay, { origin: "same", cookie: await cookieOf(staffCtx) })).text,
+        ).toContain("Enter the item, the amount and Cash or QR.");
         // Three decimals: the server's parser refuses it.
         await staff.getByTestId("qs-amount").fill("1.005");
-        await staff.getByTestId("qs-qr").click();
         await staff.getByTestId("qs-add").click();
         await expect
           .poll(() => staff.getByTestId("qs-error").textContent())
@@ -1378,7 +1408,8 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         const refused = await replay(hijack, { origin: "same", cookie: await cookieOf(staffCtx) });
         expect(refused.text).toContain("This sale can no longer be cancelled.");
         expect(await sales().findById(theirs._id).lean()).toMatchObject({ cancelled: false });
-        // An own sale older than 10 minutes: not listed any more, and cancelling it is refused.
+        // An own sale of today older than 10 minutes: still listed, but no Cancel, and cancelling
+        // it is refused by the server.
         await addSale(staff, "Old item", "10", "cash");
         const old = await sales().findOne({ itemText: "Old item" }).lean();
         if (!old) throw new Error("no old item");
@@ -1388,7 +1419,16 @@ describe.skipIf(!ENABLED || !HAVE_CHROME)(
         );
         await staff.reload({ waitUntil: "networkidle" });
         await staff.getByTestId("qs-sale-form").waitFor();
-        expect(await staff.getByTestId("qs-recent").textContent()).not.toContain("Old item");
+        const oldRow = staff.getByTestId("qs-recent-row").filter({ hasText: "Old item" });
+        await expect.poll(() => oldRow.count()).toBe(1);
+        expect(await oldRow.getByTestId("qs-cancel").count()).toBe(0);
+        // Newest first; the aged item is now the oldest of today's.
+        const order = await staff.getByTestId("qs-recent-row").allTextContents();
+        expect(order.map((t) => t.match(/Silk scarf|Belt|Old item/)?.[0])).toEqual([
+          "Belt",
+          "Silk scarf",
+          "Old item",
+        ]);
         const late = { ...cancel, body: cancel.body.replace(beltDoc._id, old._id) };
         expect(
           (await replay(late, { origin: "same", cookie: await cookieOf(staffCtx) })).text,

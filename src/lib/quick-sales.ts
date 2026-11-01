@@ -19,7 +19,7 @@ import { safeErrors } from "./server-errors";
 
 const untrusted = (data: unknown): unknown => data;
 
-/** STAFF page data: whether today's opening change exists, and the caller's own recent entries. */
+/** STAFF page data: whether today's opening change exists, and the caller's own sales of today. */
 export const getQuickSalesPage = createServerFn({ method: "GET" })
   .middleware([safeErrors, requirePermission("quickSales.useOwn")])
   .handler(async ({ context }) => {

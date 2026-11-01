@@ -325,6 +325,23 @@ describe("adding a quick sale", () => {
     );
   });
 
+  it("payment must be chosen: no payment, null, empty or a guess is refused and nothing is stored", async () => {
+    await opened();
+    const { payment: _none, ...withoutPayment } = sale();
+    for (const input of [
+      withoutPayment,
+      sale({ payment: null }),
+      sale({ payment: "" }),
+      sale({ payment: ["cash"] }),
+      sale({ payment: { $in: ["cash", "qr"] } }),
+    ])
+      expect(await q.addSale(ALICE, input), JSON.stringify(input)).toEqual({
+        ok: false,
+        error: QUICK_SALE_ERRORS.input,
+      });
+    expect(await quickSaleModel(conn).countDocuments()).toBe(0);
+  });
+
   it("a sale at 23:59:59.999 belongs to that day; at midnight a new day (and opening) begins", async () => {
     clock = LAST_MS;
     await opened();
@@ -398,45 +415,74 @@ describe("cancelling one's own sale", () => {
 });
 
 describe("what staff see", () => {
-  it("only their own entries of the last 10 minutes, newest first, at most 5, and no totals", async () => {
+  it("ALL their own sales of today, newest first; not yesterday's, not other people's; no totals", async () => {
+    // Yesterday (Bangkok): a sale 1 ms before today's midnight, by ALICE herself.
+    clock = Date.UTC(2026, 9, 31, 16, 59, 59, 999);
+    await q.recordOpeningFloat(ALICE, { amountText: "100" });
+    await added(ALICE, { itemText: "Yesterday", amountText: "33333" });
+    clock = Date.UTC(2026, 9, 31, 17, 0, 0, 0); // 00:00 today in Bangkok
     await opened();
-    clock = MORNING - 11 * MIN;
-    await added(ALICE, { itemText: "Too old" });
+    await added(ALICE, { itemText: "Mine 0" });
     for (let i = 1; i <= 6; i++) {
-      clock = MORNING + i * 1000;
+      clock = MORNING + i * MIN;
       await added(ALICE, { itemText: `Mine ${i}` });
       await added(BOB, { itemText: `Bob ${i}`, amountText: "77777" });
     }
-    clock = MORNING + 7000;
+    clock = MORNING + 3 * 60 * MIN; // three hours later, still today
+    await added(ALICE, { itemText: "Latest" });
     const page = await q.staffPage(ALICE);
     expect(page.hasOpeningFloat).toBe(true);
-    expect(page.recent.map((s) => s.itemText)).toEqual([
+    expect(page.sales.map((s) => s.itemText)).toEqual([
+      "Latest",
       "Mine 6",
       "Mine 5",
       "Mine 4",
       "Mine 3",
       "Mine 2",
+      "Mine 1",
+      "Mine 0",
     ]);
-    expect(Object.keys(page).sort()).toEqual(["hasOpeningFloat", "recent"]);
-    for (const s of page.recent)
+    // Cancel is offered only on the entry under 10 minutes old.
+    expect(page.sales.map((s) => s.canCancel)).toEqual([true, ...Array(7).fill(false)]);
+    expect(Object.keys(page).sort()).toEqual(["hasOpeningFloat", "sales"]);
+    for (const s of page.sales)
       expect(Object.keys(s).sort()).toEqual(
         ["amountSatang", "canCancel", "cancelled", "id", "itemText", "payment", "time"].sort(),
       );
     const text = JSON.stringify(page);
-    expect(text).not.toMatch(/Bob|77777|7777700|usr_|Satang"?:\s*\d{7,}|total|cash"?:\s*\d/i);
+    expect(text).not.toMatch(
+      /Yesterday|3333300|Bob|77777|7777700|usr_|Satang"?:\s*\d{7,}|total|count|sum|cash"?:\s*\d/i,
+    );
+    // Bob sees only his own.
+    expect((await q.staffPage(BOB)).sales.map((s) => s.itemText)).toEqual(
+      [6, 5, 4, 3, 2, 1].map((i) => `Bob ${i}`),
+    );
   });
 
-  it("a cancelled own entry stays listed, marked cancelled, without Cancel", async () => {
+  it("cancelled own entries stay listed, marked cancelled, without Cancel", async () => {
     await opened();
     const s = await added(ALICE);
     await q.cancelOwnSale(ALICE, s.id);
-    expect((await q.staffPage(ALICE)).recent).toEqual([
+    expect((await q.staffPage(ALICE)).sales).toEqual([
       expect.objectContaining({ id: s.id, cancelled: true, canCancel: false }),
     ]);
   });
 
+  it("Cancel is refused on the server for an old own entry that is still listed today", async () => {
+    await opened();
+    const old = await added(ALICE);
+    clock = MORNING + 2 * 60 * MIN;
+    const listed = (await q.staffPage(ALICE)).sales;
+    expect(listed).toEqual([expect.objectContaining({ id: old.id, canCancel: false })]);
+    expect(await q.cancelOwnSale(ALICE, old.id)).toEqual({
+      ok: false,
+      error: QUICK_SALE_ERRORS.cannotCancel,
+    });
+    expect(await quickSaleModel(conn).findById(old.id).lean()).toMatchObject({ cancelled: false });
+  });
+
   it("without today's opening change the page says so", async () => {
-    expect(await q.staffPage(ALICE)).toEqual({ hasOpeningFloat: false, recent: [] });
+    expect(await q.staffPage(ALICE)).toEqual({ hasOpeningFloat: false, sales: [] });
   });
 });
 

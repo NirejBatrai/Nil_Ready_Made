@@ -206,9 +206,15 @@ S9 of decision 0002 lands._
 - Every product server function keeps `requireOwner`, which refuses every role except `owner`:
   staff get "Not allowed." from all seven (unit-tested and E2E-replayed with a staff cookie).
 - **Staff responses never contain totals, other people's sales, user ids or names.** The staff
-  page's data is built field by field (`toStaffSale`) from the caller's own sales only (query
-  filter `userId` from the session). Leak tests use distinctive values for other users' sales
-  and the day's totals.
+  page's data is built field by field (`toStaffSale`) from the caller's own sales only. Owner
+  decision (0004, amended 2026-11-01): staff see **all their own sales of today** (query filter
+  `userId` from the session **and** `businessDay` = today in Bangkok, set by the server), newest
+  first, cancelled ones included, but **no totals, sums or counts**, nothing from other days and
+  nothing from other people. Leak tests use distinctive values for other users' sales, an own
+  sale of yesterday and the day's totals.
+- Cancel is offered only where the server says `canCancel` (own, not cancelled, under 10
+  minutes); the button is display only, the cancel itself is checked again (below). A payment
+  (`cash` or `qr`) is required by the server; the page never preselects one.
 - The user, the time and the Bangkok business day are always set by the server. Inputs with any
   other field (`userId`, `businessDay`, `createdAt`, `cancelled`, …) are refused (Zod
   `.strict()`). Amounts are parsed on the server from the typed text (`parseBahtToSatang`).

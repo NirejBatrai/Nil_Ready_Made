@@ -252,7 +252,7 @@ describe("staff are refused on the server everywhere except their four Quick Sal
 
 describe("the staff flow through the real middleware", () => {
   it("opening change once a day, then add, list and cancel their own sale", async () => {
-    expect(await as("som", getQuickSalesPage)).toEqual({ hasOpeningFloat: false, recent: [] });
+    expect(await as("som", getQuickSalesPage)).toEqual({ hasOpeningFloat: false, sales: [] });
     expect(await as("som", recordOpeningFloat, { amountText: "1,000" })).toEqual({ ok: true });
     expect(await as("noi", recordOpeningFloat, { amountText: "5" })).toEqual({
       ok: false,
@@ -265,8 +265,8 @@ describe("the staff flow through the real middleware", () => {
     });
     expect(added).toMatchObject({ ok: true, sale: { itemText: "Scarf", amountSatang: 180050 } });
     const page = await as("som", getQuickSalesPage);
-    expect(page).toMatchObject({ hasOpeningFloat: true, recent: [{ itemText: "Scarf" }] });
-    const saleId = (page as { recent: { id: string }[] }).recent[0]?.id;
+    expect(page).toMatchObject({ hasOpeningFloat: true, sales: [{ itemText: "Scarf" }] });
+    const saleId = (page as { sales: { id: string }[] }).sales[0]?.id;
     expect(await as("som", cancelQuickSale, saleId)).toEqual({ ok: true });
     expect(await quickSaleModel(conn).findById(saleId).lean()).toMatchObject({
       cancelled: true,
@@ -324,8 +324,8 @@ describe("leak tests: staff responses never contain totals or other people's sal
     state.token = tokens.owner;
     await call(addQuickSale, { itemText: "OWNER-SECRET", amountText: "55555", payment: "cash" });
     await keep("som", addQuickSale, { itemText: "Mine", amountText: "12.34", payment: "cash" });
-    const page = (await keep("som", getQuickSalesPage)) as { recent: { id: string }[] };
-    await keep("som", cancelQuickSale, page.recent[0]?.id);
+    const page = (await keep("som", getQuickSalesPage)) as { sales: { id: string }[] };
+    await keep("som", cancelQuickSale, page.sales[0]?.id);
     await keep("som", getQuickSalesPage);
     // Refusals carry nothing either.
     state.token = tokens.som;

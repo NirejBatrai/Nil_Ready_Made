@@ -4,6 +4,37 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-11-01 — Quick Sales: staff see their own sales for today
+
+Owner decision, recorded in [decision 0004](decisions/0004-interim-quick-sales.md) (amended).
+
+- **`/quick-sales` list** is now **"Your sales today"**: ALL of the signed-in staff member's
+  own sales of today's Bangkok business day, newest first, cancelled ones crossed out (was: the
+  last 5 entries of the past 10 minutes). Cancel only on entries less than 10 minutes old.
+  Still no totals, sums or counts, no other days and no other people's sales.
+- **Server:** `staffPage` filters on `userId` (from the session) **and** `businessDay` (today,
+  set by the server); no limit. The response field is now `sales` (was `recent`). `canCancel`
+  and the atomic cancel rule are unchanged.
+- **Payment buttons:** the selected one is filled with a check mark, the other plainly outlined;
+  Add is disabled until item, amount and payment are set; after Add item, amount and payment
+  are all cleared, so payment is chosen for every sale.
+- **Files:** `src/server/quick-sales.server.ts`, `src/lib/quick-sales.ts` (comment),
+  `src/routes/quick-sales.tsx`, `src/test/quick-sales.test.ts`,
+  `src/test/quick-sales-server-fns.test.ts`, `src/test/auth.e2e.test.ts`, decision 0004,
+  `docs/SECURITY.md`, this file and `docs/PROJECT_STATUS.md`.
+- **Tests:** own sales of today only (an own sale 1 ms before midnight and another staff
+  member's are excluded), newest first, `canCancel` only under 10 minutes, the server refuses
+  cancelling an older listed entry, the server refuses a sale without a payment, no totals in
+  staff responses (leak tests kept). E2E: heading, Add disabled until all three are set,
+  selected/unselected payment state with check mark, reset after Add, an older own entry listed
+  without Cancel, a replayed sale with an empty payment refused.
+- **Results:** `bun run test` 338 passed, 0 failed, 57 skipped; `bun run test:e2e` 55 passed,
+  0 failed, 1 skipped; typecheck and format check exit 0; lint 0 errors (11 old warnings).
+- **Mutation checks** (`staffPage` in `src/server/quick-sales.server.ts`, one at a time, file
+  restored byte-identical, control run 33/33 passed): dropping the `userId` filter failed 2
+  tests (staff view, leak test); dropping the `businessDay` filter failed the staff-view test
+  (yesterday's sale listed); adding a `totalSatang` to the staff response failed 4 tests.
+
 ## 2026-11-01 — Demo hidden by default in production
 
 - **`DEMO_ENABLED`** (host environment, read on the server at call time,

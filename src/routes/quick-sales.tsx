@@ -5,9 +5,13 @@
  * - Access is enforced on the server: every Quick Sales server function runs `requirePermission`
  *   on every call. The `beforeLoad` redirect is only a convenience for signed-out visitors.
  * - Until today's opening change money is recorded, only that form is shown. Then: item, amount,
- *   Cash / QR, Add, and the signed-in user's own entries of the last 10 minutes (at most 5), each
- *   with Cancel while it is less than 10 minutes old.
- * - No totals, no history, no other people's sales: the server never sends them here.
+ *   Cash / QR, Add, and "Your sales today": ALL of the signed-in user's own sales of today's
+ *   Bangkok business day, newest first, cancelled ones crossed out. Cancel only on entries less
+ *   than 10 minutes old (the server decides `canCancel` and enforces it again on cancel).
+ * - Add stays disabled until item, amount and Cash / QR are all set; after Add the payment is
+ *   cleared again, so it is chosen for every sale.
+ * - No totals, sums or counts, no other days, no other people's sales: the server never sends
+ *   them here (owner decision, 0004).
  * - Amounts are sent as typed and parsed on the server (integer satang); the browser never sends
  *   a date or a time.
  */
@@ -179,6 +183,7 @@ function QuickSales() {
     </p>
   );
   const big = "h-14 w-full text-lg";
+  const canAdd = item.trim() !== "" && amount.trim() !== "" && payment !== null;
 
   return (
     <Frame>
@@ -267,23 +272,32 @@ function QuickSales() {
               />
             </div>
             <div className="grid grid-cols-2 gap-3" role="group" aria-label="Payment">
-              {(["cash", "qr"] as const).map((p) => (
-                <Button
-                  key={p}
-                  type="button"
-                  data-testid={`qs-${p}`}
-                  aria-pressed={payment === p}
-                  variant={payment === p ? "default" : "outline"}
-                  className="h-14 text-lg"
-                  disabled={!hydrated || busy}
-                  onClick={() => {
-                    setPayment(p);
-                    setSaved(false);
-                  }}
-                >
-                  {PAYMENT_LABEL[p]}
-                </Button>
-              ))}
+              {(["cash", "qr"] as const).map((p) => {
+                const selected = payment === p;
+                return (
+                  <Button
+                    key={p}
+                    type="button"
+                    data-testid={`qs-${p}`}
+                    aria-pressed={selected}
+                    data-selected={selected ? "true" : "false"}
+                    variant={selected ? "default" : "outline"}
+                    className={`h-14 border-2 text-lg ${
+                      selected
+                        ? "border-primary font-semibold shadow-md"
+                        : "border-input bg-background text-muted-foreground"
+                    }`}
+                    disabled={!hydrated || busy}
+                    onClick={() => {
+                      setPayment(p);
+                      setSaved(false);
+                    }}
+                  >
+                    {selected && <Check className="size-5" aria-hidden="true" />}
+                    {PAYMENT_LABEL[p]}
+                  </Button>
+                );
+              })}
             </div>
             {errorBox}
             {saved && (
@@ -299,23 +313,23 @@ function QuickSales() {
               type="submit"
               data-testid="qs-add"
               className="h-16 w-full text-xl"
-              disabled={!hydrated || busy}
+              disabled={!hydrated || busy || !canAdd}
             >
               {busy ? "Saving…" : "Add"}
             </Button>
           </form>
 
           <section aria-labelledby="qs-recent-title">
-            <h2 id="qs-recent-title" className="text-sm font-medium text-muted-foreground">
-              Your entries (last 10 minutes)
+            <h2 id="qs-recent-title" className="text-base font-medium">
+              Your sales today
             </h2>
-            {page.recent.length === 0 ? (
+            {page.sales.length === 0 ? (
               <p data-testid="qs-recent-empty" className="mt-2 text-sm text-muted-foreground">
                 None yet.
               </p>
             ) : (
               <ul data-testid="qs-recent" className="mt-2 space-y-2">
-                {page.recent.map((s) => (
+                {page.sales.map((s) => (
                   <li
                     key={s.id}
                     data-testid="qs-recent-row"

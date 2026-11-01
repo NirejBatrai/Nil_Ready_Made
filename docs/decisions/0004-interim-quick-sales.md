@@ -1,6 +1,7 @@
 # 0004 — Interim "Quick Sales" notebook (temporary, until slice S9)
 
-- **Status:** Accepted by the owner, 2026-11-01. **Temporary:** retires when slice S9 of
+- **Status:** Accepted by the owner, 2026-11-01 (amended the same day by owner decision: staff
+  see all their own sales of today, see Decision 3). **Temporary:** retires when slice S9 of
   [decision 0002](0002-employees-and-roles.md) lands.
 - **Relation to 0002:** separate and temporary. It does **not** change the accepted 0002 design,
   its roles, its permission matrix or its slices. Nothing here is a step toward S1–S13; when S9
@@ -28,14 +29,22 @@ and its totals.
    - record today's opening change money;
    - add a quick sale;
    - cancel **their own** sale within **10 minutes**;
-   - see their own entries of the last 10 minutes (needed for Cancel).
+   - see **all their own sales of today** (Bangkok business day), cancelled ones included, with
+     no totals (owner decision, amended 2026-11-01; was: the last 10 minutes only).
 
    Everything else is refused on the server, including every `/owner` page and every product
    server function (they keep `requireOwner`, which already refuses any role but `owner`).
 
 3. **One staff page, `/quick-sales`** (not `/sales`: the demo already owns `/sales`). It shows the
-   opening-change form until today's opening change exists, then the sale form and the last 5
-   own entries of the past 10 minutes. No totals, no history, no other people's sales, no links.
+   opening-change form until today's opening change exists, then the sale form and **"Your sales
+   today"**: every own sale of today's Bangkok business day, newest first, cancelled ones crossed
+   out, with Cancel only on entries less than 10 minutes old. **Owner decision (amended
+   2026-11-01):** staff may see their own sales of today, because checking what they wrote down
+   helps them; still **no totals, sums or counts**, no other days, no other people's sales, no
+   links. The server enforces all of it (query filter: this user and today's business day;
+   `canCancel` decided by the server; cancel re-checked atomically). Cash / QR must be chosen for
+   every sale: it is never preselected, Add stays disabled until item, amount and payment are
+   set, and the server refuses a sale without one.
    Staff are redirected away from the browser demo (`/` and every demo screen).
 4. **Data** (MongoDB):
    - `opening_floats`: one per Bangkok business day. `_id` **is** the business day

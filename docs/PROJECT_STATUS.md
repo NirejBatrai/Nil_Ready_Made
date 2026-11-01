@@ -20,8 +20,8 @@ Luxe Retail OS is a mobile-first POS / back-office app for a small shop in Thail
   VERIFIED in code and isolated tests.
 - **Interim Quick Sales** (TEMPORARY, [decision 0004](decisions/0004-interim-quick-sales.md);
   retires when slice S9 lands): a `staff` role, a deny-by-default permission table
-  (`requirePermission`), the staff page `/quick-sales` (opening change, add, own cancel within
-  10 minutes), the owner page `/owner/today`, and `GET /api/daily-summary` (bearer token, for
+  (`requirePermission`), the staff page `/quick-sales` (opening change, add, "Your sales today":
+  all own sales of today without totals, own cancel within 10 minutes), the owner page `/owner/today`, and `GET /api/daily-summary` (bearer token, for
   n8n later). VERIFIED in code, isolated tests and E2E. Not deployed.
 - **Not yet built:** real sales (0002 S9; Quick Sales is only a notebook), refunds, inventory movements, payments,
   employees, audit log, password reset, deployment. See [ROADMAP.md](ROADMAP.md).
