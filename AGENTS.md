@@ -24,7 +24,8 @@ The root `roadmap.md` is the old demo-era checklist; `docs/ROADMAP.md` supersede
   from `.env.example` and code references only. Never put secrets, connection strings,
   passwords, tokens or personal credentials in code, logs, test output, docs, or commits.
 - **Commands that make the app load `.env`** (`bun run dev`, `bun run build`, `bun run test:db`,
-  `bun run auth:create-owner`, `bun run db:setup-indexes`; `bun run preview` likely, NOT
+  `bun run auth:create-owner`, `bun run auth:create-staff`, `bun run auth:reset-password`,
+  `bun run db:setup-indexes`; `bun run preview` likely, NOT
   VERIFIED) touch the owner's real configuration or database. Do not run them unless the user
   explicitly asks; prefer that the user runs them (`! <command>` in Claude Code). `bun run test`
   and `bun run test:e2e` do not load `.env` (`vitest.config.ts` sets `envDir: false`). See

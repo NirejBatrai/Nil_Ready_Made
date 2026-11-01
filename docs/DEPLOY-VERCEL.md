@@ -43,72 +43,111 @@ code, commits, issues or screenshots.
       The app takes the database name from this path, and an empty path would use `test`.
 - [ ] If the password has symbols, URL-encode them (or regenerate a letters-and-digits one).
 
-## 5. Create the indexes and the owner from your laptop (real-database writes)
+## 5. Create the indexes and the accounts from your laptop (real-database writes)
 
-Run these in the project folder on your own computer. The scripts read `MONGODB_URI`.
+Run these in the project folder on your own computer. Use the **rotated** Atlas password: the
+earlier one was exposed and must not be used anywhere. Never let the connection string reach your
+shell history, a file or a chat.
 
-- [ ] Put the Atlas string into `MONGODB_URI` for this terminal without it landing in your shell
-      history:
+- [ ] Read the Atlas string once into a shell variable (nothing is shown, nothing is saved):
 
   ```sh
-  read -rs MONGODB_URI && export MONGODB_URI   # paste, press Enter (nothing is shown)
+  read -rs ATLAS_URI   # paste the string from step 4, press Enter
   ```
 
-  Bun also loads `.env`; Bun's documentation says variables already set in the shell take
-  precedence (NOT VERIFIED in this project). If your `.env` points at another database, check
-  the script output or temporarily move `.env` aside.
+- [ ] Run every script with `MONGODB_URI` set **for that one command only**. A variable set this
+      way takes precedence over `.env` (VERIFIED 2026-11-01 with Bun 1.4.4: a variable that is already set is not overridden by `.env`),
+      so these commands use the Atlas database, not the one your local `.env` names:
+
+  ```sh
+  MONGODB_URI="$ATLAS_URI" bun run <script>
+  ```
 
 - [ ] Only if this database already has products created before 2026-11-01 (whole baht):
-      `bun run db:migrate-money-satang` (dry run: counts only) and then
-      `bun run db:migrate-money-satang --apply`. A new, empty database needs neither.
-- [ ] `bun run db:setup-indexes` → expect "Database indexes are in place. Product creation is
-      enabled." It creates the session TTL, login-attempt TTL (`login_attempt_expiry`), unique
-      email, single-owner and product indexes. It changes no data.
-- [ ] `bun run auth:create-owner` → enter your email, name and a **new** password (10–128
-      characters, not used anywhere else).
-- [ ] Interim Quick Sales ([decision 0004](decisions/0004-interim-quick-sales.md)): for each staff
-      account, `bun run auth:create-staff` → their email, name and their own **new** password
-      (10–128 characters). Staff sign in at `/login` and can only use `/quick-sales`. Refuses an
-      email that already exists. **Note:** this deployment is for test data only (decision 0003);
-      real staff recording real shop sales here would be commercial use of the Hobby plan.
-- [ ] `unset MONGODB_URI` and close the terminal.
+      `MONGODB_URI="$ATLAS_URI" bun run db:migrate-money-satang` (dry run: counts only), then
+      the same with `--apply`. A new, empty database needs neither.
+- [ ] `MONGODB_URI="$ATLAS_URI" bun run db:setup-indexes`. Expect "Database indexes are in place.
+      Product creation is enabled." It creates the session TTL, login-attempt TTL
+      (`login_attempt_expiry`), unique email, single-owner and product indexes. It changes no
+      data.
+- [ ] `MONGODB_URI="$ATLAS_URI" bun run auth:create-owner`. Enter your email, your name and a
+      **new** password (10–128 characters, not used anywhere else).
+- [ ] Interim Quick Sales ([decision 0004](decisions/0004-interim-quick-sales.md)): for each
+      staff account, run `MONGODB_URI="$ATLAS_URI" bun run auth:create-staff` and enter their
+      email, name and their own **new** password (10–128 characters). Staff sign in at `/login`
+      and can only use `/quick-sales`. The script refuses an email that already exists.
+      **Note:** this deployment is for test data only (decision 0003). Real staff recording real
+      shop sales here would be commercial use of the Hobby plan.
+- [ ] **Forgotten or exposed password** (owner or staff, at any time later): run
+      `MONGODB_URI="$ATLAS_URI" bun run auth:reset-password`. Enter the account's email and the
+      new password twice (hidden). It uses the same rules and hashing as account creation and
+      changes only the password, so the role and the one-owner rule are untouched. Afterwards it
+      signs that account out on **every** device. An unknown email gets only "No such user."
+- [ ] `unset ATLAS_URI` and close the terminal.
 
 ## 6. Vercel project
 
-- [ ] Vercel → **Add New → Project** → import the private GitHub repository
-      `NirejBatrai/Nil_Ready_Made`. This connects an external service to the repository; Lovable
-      stays disconnected.
-- [ ] **Framework preset:** Other. **Install command:** `bun install --frozen-lockfile`.
-      **Build command:** `bun run build`. **Output directory:** leave empty (Vercel uses the
-      `.vercel/output` folder the build writes).
-- [ ] **Node.js version:** 24.x (the build writes `runtime: nodejs24.x` for the function).
-- [ ] **Functions region:** Singapore (`sin1`), next to the database.
+### 6a. Keep the repository private and give Vercel access to it
+
+- [ ] GitHub → `NirejBatrai/Nil_Ready_Made` → **Settings → General**: the repository must be
+      **Private**. (Danger Zone → Change visibility, if it is not.) Agents never change this.
+- [ ] Give Vercel's GitHub app access to **this repository only**. Either:
+  - in Vercel's import screen, use **Adjust GitHub App Permissions**; or
+  - in GitHub, go to **Settings (your account) → Applications → Installed GitHub Apps → Vercel →
+    Configure → Repository access → Only select repositories**, and add `Nil_Ready_Made`.
+
+  Do not grant access to all repositories. This connects an external service to the
+  repository; Lovable stays disconnected. (These Vercel and GitHub menu names are NOT VERIFIED;
+  they may differ slightly.)
+
+### 6b. Import, then set the Production Branch BEFORE the real deploy
+
+The import screen has no branch choice, and its first deployment builds the repository's default
+branch, `main`. `main` is the old browser-only demo with no backend. Order the steps so that no
+secret is ever available to a `main` build, and so that the real deployment comes from
+`feature/mongodb-foundation`:
+
+- [ ] Vercel → **Add New → Project** → import `NirejBatrai/Nil_Ready_Made`, and set the following
+      on the import screen. **Add no environment variables yet.**
+  - **Framework preset:** Other.
+  - **Install command:** `bun install --frozen-lockfile`.
+  - **Build command:** `bun run build`.
+  - **Output directory:** leave empty (Vercel uses the `.vercel/output` folder the build
+    writes).
+- [ ] Let that first deployment of `main` finish (or cancel it). Do not use it.
+- [ ] **Settings → Git → Production Branch** = `feature/mongodb-foundation`, then save. (Newer
+      Vercel UIs may show this under **Settings → Environments → Production → Branch Tracking**;
+      NOT VERIFIED.)
+- [ ] **Settings → Functions → Node.js version:** 24.x (the build writes `runtime: nodejs24.x`
+      for the function). **Functions region:** Singapore (`sin1`), next to the database.
 - [ ] **Deployment Protection:** keep **Vercel Authentication** on for **Preview** deployments.
 
-### Environment variables (Settings → Environment Variables)
+### 6c. Environment variables (Settings → Environment Variables)
 
-| Name                     | Value                                                               | Environments       |
-| ------------------------ | ------------------------------------------------------------------- | ------------------ |
-| `MONGODB_URI`            | the connection string from step 4                                   | **Production**     |
-| `NITRO_PRESET`           | `vercel` (Vercel's `VERCEL=1` also selects it; explicit is clearer) | Production (build) |
-| `SECURITY_HSTS_MAX_AGE`  | **leave unset** (see step 8)                                        |                    |
-| `DB_HEALTHCHECK_ENABLED` | **leave unset**                                                     |                    |
-| `DEMO_ENABLED`           | **leave unset** (the demo stays off; `true` would offer it)         |                    |
-| `SUMMARY_API_TOKEN`      | output of `openssl rand -base64 32` (44 characters; ≥ 32 required)  | **Production**     |
+Add these only **after** the Production Branch is set.
 
-- [ ] Mark `MONGODB_URI` as **Sensitive**. Give it to **Production only**, so preview builds of
-      other branches cannot reach the database.
-- [ ] Mark `SUMMARY_API_TOKEN` as **Sensitive**, **Production only**. Generate it on your own
-      computer with `openssl rand -base64 32`, paste it straight into Vercel and your password
-      manager (later: n8n's credential store), never into chat, code or commits. Without it, or
-      with fewer than 32 characters, `/api/daily-summary` answers 503 to everyone (fail closed).
-- [ ] Do **not** set `VERCEL` yourself (Vercel sets it). Never add any `VITE_*` variable holding
+| Name                     | Required?            | Value / scope                                                                                                 | If missing                                                                                              |
+| ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `MONGODB_URI`            | **Required**         | The **rotated** Atlas string from step 4, with `/luxe` before the `?`. **Production** only, **Sensitive**     | Every database page shows "cannot be reached"; sign-in fails safely                                     |
+| `SUMMARY_API_TOKEN`      | Required for the API | Output of `openssl rand -base64 32` (44 characters; at least 32 required). **Production** only, **Sensitive** | `/api/daily-summary` answers 503 to everyone (fails closed); nothing else is affected                   |
+| `NITRO_PRESET`           | Optional             | `vercel`. Vercel's own `VERCEL=1` already selects it; setting it explicitly is clearer                        | The build still uses the `vercel` preset (through `VERCEL=1`)                                           |
+| `DEMO_ENABLED`           | **Leave unset**      | (`true` would offer the demo)                                                                                 | The demo stays off: `/` shows only Sign in, and demo screens redirect to `/login`                       |
+| `DB_HEALTHCHECK_ENABLED` | **Leave unset**      | —                                                                                                             | `/dev/db-health` stays disabled                                                                         |
+| `SECURITY_HSTS_MAX_AGE`  | **Leave unset**      | (see step 8)                                                                                                  | The app sends no HSTS header of its own. Whether Vercel adds one on `*.vercel.app` is a smoke-test item |
+
+- [ ] Give `MONGODB_URI` and `SUMMARY_API_TOKEN` to **Production only**, so preview builds of
+      other branches cannot reach the database or the API.
+- [ ] Generate `SUMMARY_API_TOKEN` on your own computer. Paste it straight into Vercel and into
+      your password manager (later also n8n's credential store). Never put it in chat, code or
+      commits.
+- [ ] Do **not** set `VERCEL` yourself (Vercel sets it). Never add a `VITE_*` variable holding
       a secret: `VITE_*` values are sent to the browser.
 
 ## 7. Deploy
 
-- [ ] Trigger the production deployment (the import does it; later, push to the production
-      branch you chose).
+- [ ] **Deployments → Redeploy** the latest `feature/mongodb-foundation` deployment, or push to
+      that branch. Check that the deployment's branch is `feature/mongodb-foundation`, **not**
+      `main`.
 - [ ] The build log should show `Generated .vercel/output/nitro.json`. If it shows
       `.output/server`, the preset was not applied: check `NITRO_PRESET`.
 
@@ -135,8 +174,9 @@ Things that could only be checked on a real deployment (decision 0003). Record t
       `*.vercel.app` by itself. Leave `SECURITY_HSTS_MAX_AGE` unset for this test deployment.
 - [ ] **No secrets leak:** `curl -s https://<app>.vercel.app/_headers` → 404, and
       `/dev/db-health` shows "disabled".
-- [ ] **Start page:** `/` shows only **Sign in** (no demo accounts), and `/pos` or `/sales`
-      redirect to `/login`.
+- [ ] **Start page:** `/` shows only the heading and **Sign in**: no demo accounts, and no
+      "demo" in the tab title (it reads "Luxe Retail OS — sign in"). `/pos`, `/sales` and
+      `/dashboard` redirect to `/login`.
 - [ ] **Sign-in:** sign in at `/login` → `/owner/products` (empty list). Add a product, edit
       it, archive it, see it under Archived, restore it.
 - [ ] **Login limit uses your address, not Vercel's:** sign out, then try a wrong password 6
@@ -150,9 +190,29 @@ Things that could only be checked on a real deployment (decision 0003). Record t
 - [ ] **Cookie:** in the browser's dev tools, the session cookie is `__Host-luxe_session`,
       `Secure`, `HttpOnly`, `SameSite=Lax`.
 - [ ] **Sign out everywhere** works.
-- [ ] **Quick Sales (decision 0004):** sign in as a staff account → lands on `/quick-sales`;
-      record the change money, add a sale with decimals, cancel it. `/owner/products` and `/`
-      send staff back to `/quick-sales`. As the owner, `/owner/today` shows the day.
+- [ ] **Quick Sales, staff (decision 0004):** sign in as a staff account; you land on
+      `/quick-sales`. Then check:
+  - Record the change money.
+  - **Payment buttons:** neither Cash nor QR is selected at first, and **Add** stays disabled
+    until the item, the amount and a payment are all set. The chosen button is filled, with a
+    check mark; the other is plainly outlined.
+  - Add a sale with decimals. "Saved ✓" appears, and the item, the amount and the payment are
+    all cleared again.
+  - **"Your sales today"** lists all of this account's sales of today, newest first, and no
+    totals, sums or counts. Another staff account's sales never appear.
+  - **Cancel** shows only on entries under 10 minutes old. Cancel one; it stays listed, crossed
+    out.
+  - `/owner/products` and `/` send staff back to `/quick-sales`.
+- [ ] **Quick Sales, owner:** `/owner/today` shows the day's totals and every sale. Then check:
+  - **Cancel** a staff sale. The dialog needs a reason (Confirm stays disabled without one); the
+    sale shows "Cancelled" with the reason, and the totals drop.
+  - **Remove** a sale with a reason. It disappears from the list, from the totals, from the
+    staff page and from `/api/daily-summary`.
+  - **Show removed** lists it greyed out, with who, when and why. **Restore** brings it back
+    into the list and the totals.
+  - **Remove opening change** with a reason: the opening shows "Not recorded". A staff account
+    can then record a new one the same day, and the old one appears under Show removed as
+    replaced.
 - [ ] **Summary API:** `curl -s https://<app>.vercel.app/api/daily-summary` → 401
       `{"error":"Not allowed."}`. With the token (typed from your password manager, not saved in
       shell history) → the day's JSON:

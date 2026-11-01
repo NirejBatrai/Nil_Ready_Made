@@ -12,22 +12,22 @@ Workers-specific statements elsewhere in the docs are historical.
 
 ## Completed
 
-| Phase                                                                                         | Status | Notes                                                                        |
-| --------------------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------- |
-| Demo app (all screens, simulated roles, fictional data)                                       | DONE   | Browser-only; not a security boundary                                        |
-| Phase One demo fixes (drawer/audit actors, deterministic reset, chart metrics, mobile layout) | DONE   | Committed on `main`                                                          |
-| Per-product minimum selling price (demo checkout + rules in `calc.ts`)                        | DONE   | Committed on `main`                                                          |
-| Repository prepared for private GitHub (no Lovable sync)                                      | DONE   | `main` = `origin/main` (local tracking ref)                                  |
-| Backend Step 1 — MongoDB connection foundation                                                | DONE   | Commit `722d86f`                                                             |
-| Product model + server-only product service                                                   | DONE   | Commit `ced5535`                                                             |
-| Backend Step 2a — owner auth core, local owner script, dev bound to `127.0.0.1`               | DONE   | Commit `ced5535`                                                             |
-| Backend Step 2b — `safeErrors`, `requireOwner`, isolated E2E suite                            | DONE   | Commit `ced5535`                                                             |
-| Backend Step 2c — `/login` UI                                                                 | DONE   | Commit `ced5535`                                                             |
-| Backend Step 3a — read-only `/owner/products`                                                 | DONE   | Commit `ced5535`                                                             |
-| Backend Step 3b — owner-only product creation + `db:setup-indexes`                            | DONE   | Commit `ced5535`                                                             |
-| Handbook (`AGENTS.md`, `docs/`) + audit hardening (`envDir: false`, `safeErrors` on health)   | DONE   | Commit `4da3c13`                                                             |
-| Login hardening (atomic attempt counting, per-address limit, bounded password hashing)        | DONE   | Commit `42518cc`                                                             |
-| Baseline security headers (`src/server.ts`, `public/_headers`, HSTS off by default)           | DONE   | Commit `4711be0`; `public/_headers` was Cloudflare-only; replaced in Step 5b |
+| Phase                                                                                                                                                               | Status | Notes                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------- |
+| Demo app (all screens, simulated roles, fictional data)                                                                                                             | DONE   | Browser-only; not a security boundary                                        |
+| Phase One demo fixes (drawer/audit actors, deterministic reset, chart metrics, mobile layout)                                                                       | DONE   | Committed on `main`                                                          |
+| Per-product minimum selling price (demo checkout + rules in `calc.ts`)                                                                                              | DONE   | Committed on `main`                                                          |
+| Repository on GitHub, meant to be **private** (no Lovable sync). The 2026-11-01 health check found it **public**; the owner sets visibility, agents never change it | DONE   | `main` = `origin/main` (local tracking ref)                                  |
+| Backend Step 1 — MongoDB connection foundation                                                                                                                      | DONE   | Commit `722d86f`                                                             |
+| Product model + server-only product service                                                                                                                         | DONE   | Commit `ced5535`                                                             |
+| Backend Step 2a — owner auth core, local owner script, dev bound to `127.0.0.1`                                                                                     | DONE   | Commit `ced5535`                                                             |
+| Backend Step 2b — `safeErrors`, `requireOwner`, isolated E2E suite                                                                                                  | DONE   | Commit `ced5535`                                                             |
+| Backend Step 2c — `/login` UI                                                                                                                                       | DONE   | Commit `ced5535`                                                             |
+| Backend Step 3a — read-only `/owner/products`                                                                                                                       | DONE   | Commit `ced5535`                                                             |
+| Backend Step 3b — owner-only product creation + `db:setup-indexes`                                                                                                  | DONE   | Commit `ced5535`                                                             |
+| Handbook (`AGENTS.md`, `docs/`) + audit hardening (`envDir: false`, `safeErrors` on health)                                                                         | DONE   | Commit `4da3c13`                                                             |
+| Login hardening (atomic attempt counting, per-address limit, bounded password hashing)                                                                              | DONE   | Commit `42518cc`                                                             |
+| Baseline security headers (`src/server.ts`, `public/_headers`, HSTS off by default)                                                                                 | DONE   | Commit `4711be0`; `public/_headers` was Cloudflare-only; replaced in Step 5b |
 
 | Step 7a — session hardening: revoke all sessions, "Sign out everywhere", old session deleted at login, 5-session cap, `createdIp`/`userAgent`/`lastSeenAt` | DONE | Committed 2026-10-28 |
 | Step 5b — build target Nitro `node-server`; static-file headers from a `nitro.config.ts` route rule (`public/_headers` removed) | DONE | Committed 2026-10-28 |
@@ -36,6 +36,11 @@ Workers-specific statements elsewhere in the docs are historical.
 | Product edit and archive UI — `/owner/products/$productId/edit`, archive (confirmation) / restore, Archived view; owner-only server functions; no delete | DONE | Committed 2026-10-31 |
 | Step 4 — time-boxed Workers runtime test (local workerd, branch `spike/workers-runtime`, not merged) | DONE | Result: move to a Node server, [decision 0001](decisions/0001-runtime-node-not-workers.md) |
 | **Interim Quick Sales** (TEMPORARY, [decision 0004](decisions/0004-interim-quick-sales.md)): `staff` role, `requirePermission` table, `auth:create-staff`, staff page `/quick-sales`, owner page `/owner/today`, `GET /api/daily-summary` (bearer token) | DONE (temporary) | Committed 2026-11-01; **retires when slice S9 lands** (see below); not deployed |
+| Demo hidden by default in production (`DEMO_ENABLED`; `/` shows only Sign in, demo screens redirect to `/login`) | DONE | Committed 2026-11-01 (`a03ed98`) |
+| Quick Sales: staff see ALL their own sales of today ("Your sales today", no totals, Cancel under 10 minutes); Cash/QR clearly selected, Add disabled until complete | DONE (temporary) | Committed 2026-11-01 (`2a517c7`) |
+| Quick Sales: owner cancel (any sale, with a reason) and soft-remove / restore (never a hard delete); removed entries excluded from totals, lists and the API | DONE (temporary) | Committed 2026-11-01 (`2419114`) |
+| `bun run auth:reset-password` (owner or staff, CLI only; revokes all of that account's sessions) | DONE | Committed 2026-11-01 |
+| Deploy checklist fixes ([DEPLOY-VERCEL.md](DEPLOY-VERCEL.md)): private repo and Vercel app access, Production Branch before the real deploy, rotated Atlas password, env var table, per-command `MONGODB_URI`, extended smoke test | DONE (not deployed) | Committed 2026-11-01 |
 
 ## Required before any real deployment
 
@@ -79,7 +84,7 @@ Candidate future work (PLANNED only, order not decided):
 | Inventory movements (stock history, adjustments)                                                                                                                                                          | Products               | New step approval                        |
 | Sales/checkout against MongoDB (transactions, server-side prices/minimums, no overselling, immutable sales)                                                                                               | Products, inventory    | New step approval                        |
 | Audit log (append-only)                                                                                                                                                                                   | Auth                   | New step approval                        |
-| Employee accounts and roles; password reset                                                                                                                                                               | Auth                   | New step approval                        |
+| Employee accounts and roles (0002)                                                                                                                                                                        | Auth                   | New step approval                        |
 | Product images (Cloudflare R2 was discussed)                                                                                                                                                              | Products               | New step approval + service setup        |
 | Connect demo screens to real data (Demo/Live separation)                                                                                                                                                  | Above                  | New step approval                        |
 | Hosting provider for the Node server (decision 0001; Fly.io/Node with a fixed egress IP was researched; paused)                                                                                           | Owner decision         | Paused by owner; payment/accounts needed |

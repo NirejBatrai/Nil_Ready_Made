@@ -238,6 +238,22 @@ S9 of decision 0002 lands._
 - A staff account is disabled by setting `active: false` in the database (no page yet); its
   sessions stop working immediately.
 
+**Password reset (`bun run auth:reset-password`)**
+
+_VERIFIED 2026-11-01 in `src/test/reset-password.test.ts` (service and the real script under
+Bun, isolated database)._
+
+- CLI only, run by the owner on their own computer (`scripts/reset-password.ts` →
+  `resetPassword` in `auth.server.ts`). There is no web route or server function.
+- Asks for the email and the new password twice (hidden input). Same password policy and scrypt
+  hashing as account creation. Works for owner and staff accounts.
+- Changes **only** `passwordHash`: never the role, the email or `active`, so the one-owner rule
+  is untouched. Extra input fields are refused.
+- Then revokes **all** of that user's sessions (`revokeAllSessions`), so every device must sign
+  in again. Other users' sessions are untouched.
+- An unknown email gets only "No such user." Database failures print a generic message. The
+  connection string and the passwords are never printed.
+
 **`GET /api/daily-summary` (for n8n, later)**
 
 - Authorization is **only** `Authorization: Bearer <SUMMARY_API_TOKEN>`. Cookies and sessions are
@@ -433,8 +449,10 @@ _VERIFIED 2026-10-25 in source and unit tests (`security-headers.test.ts`); E2E 
   (on Workers it would have been one connection per request; historical).
 - No full Content-Security-Policy (only `frame-ancestors`); HSTS not enabled anywhere yet.
 - No audit log of logins or product changes yet.
-- No password reset; no employee accounts (0002). The interim `staff` accounts (decision 0004)
-  have no disable page, no audit log and normal 7-day sessions.
+- No self-service password reset and no employee accounts (0002). The owner resets any
+  account's password with the CLI `bun run auth:reset-password` (below). The interim `staff`
+  accounts (decision 0004) have no disable page, no general audit log and normal 7-day
+  sessions.
 - Quick Sales item text is free text typed by staff; totals are only as good as what is typed.
 - Production cookie needs HTTPS; hosting, Atlas network access and backups are undecided.
 - Driver-level writes (`Model.collection.*`, `bulkWrite`) bypass Mongoose hooks; app code does

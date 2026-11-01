@@ -4,6 +4,68 @@ Dated record of completed work, decisions, test evidence and corrections. Newest
 Commit hashes refer to this repository. Each heading names the commit that contains the work;
 "uncommitted" would mean it exists only in the working tree (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
+## 2026-11-01 — Password reset script, start-page title, deploy checklist fixes
+
+Code is in `36836f4`; these docs are in the commit after it.
+
+- **`bun run auth:reset-password`** (`scripts/reset-password.ts` → `resetPassword` in
+  `src/server/auth/auth.server.ts`):
+  - CLI only, for the owner and for staff accounts.
+  - Asks for the email, then the new password twice (hidden input). Same password policy and
+    scrypt hash as `auth:create-owner`.
+  - Changes only `passwordHash`; the role, the email, `active` and the one-owner rule are
+    untouched.
+  - Then calls `revokeAllSessions(userId)`, which signs that account out on every device.
+  - An unknown email gets only "No such user."
+  - Database errors give a generic message. Nothing secret is printed.
+- **Start page:** the title, description and `og:` tags no longer say "demo": "Luxe Retail OS —
+  sign in". The page content is unchanged.
+- **Tests:** `src/test/reset-password.test.ts` has 8 tests, on the service and on the real
+  script under Bun from an empty temp folder. They check:
+  - the reset works for owner and staff; the old password fails;
+  - all sessions are revoked, while other users' sessions are kept;
+  - roles and the single owner are unchanged, and extra fields are refused;
+  - "No such user.";
+  - weak or mismatched passwords change nothing;
+  - no URI or password is printed, and database errors are generic.
+
+  The E2E built-server check now also asserts the new title and description.
+
+- **Mutation check:** I removed the `revokeAllSessions` call. 2 tests failed (service and
+  script). The file was restored byte-identical; the control run passed 8/8.
+- **Verified:** with Bun 1.4.4, a variable set on the command line
+  (`MONGODB_URI="$ATLAS_URI" bun run …`) takes precedence over `.env`. I tested this with
+  throwaway files in a temp folder, not the real `.env`.
+- **Docs:**
+  - `DEPLOY-VERCEL.md`:
+    - the private repository and Vercel GitHub-app access to this repository only;
+    - Production Branch = `feature/mongodb-foundation` set before the real deploy, with env
+      vars added only after it, so a `main` build never sees a secret;
+    - the rotated Atlas password, and `read -rs ATLAS_URI` with `MONGODB_URI="$ATLAS_URI"` on
+      each command;
+    - the reset-password step;
+    - the full env var table;
+    - an extended smoke test.
+
+    The Vercel and GitHub menu names are marked NOT VERIFIED.
+
+  - `PROJECT_STATUS.md`:
+    - the Git table date and the committed-work list;
+    - the audit-log wording;
+    - `db:setup-indexes` was run only on the local podman database;
+    - the "Sign in" link name;
+    - a reset-password row.
+  - `ROADMAP.md`: rows for the four new items; the "private GitHub" row now records the
+    2026-11-01 public finding.
+  - `SECURITY.md`, `ARCHITECTURE.md`, `TESTING.md`, `AGENTS.md` and decision 0004: the
+    reset-password section, the scripts list, the test rows (and the stale Quick Sales row), the
+    `.env`-loading command list, and the audit-log wording.
+- **Results:**
+  - `bun run test`: 357 passed, 0 failed, 58 skipped (24 files passed, 2 skipped).
+  - `bun run test:e2e`: 56 passed, 0 failed, 1 skipped.
+  - Typecheck and format check: exit 0.
+  - Lint: 0 errors (the 11 old warnings remain).
+
 ## 2026-11-01 — Quick Sales: owner cancel and soft-remove
 
 Owner decision, recorded in [decision 0004](decisions/0004-interim-quick-sales.md) (amended).

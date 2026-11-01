@@ -100,7 +100,8 @@ long as the records are.
 
 - Quick Sales are **not** linked to products or stock: the item is free text. Totals are only as
   good as what staff type.
-- No audit log, no shifts, no till registration, no time windows, no PINs: this is a notebook,
+- No general audit log (owner cancel and remove record who, when and why on the entry itself),
+  no shifts, no till registration, no time windows, no PINs: this is a notebook,
   not the 0002 design. Staff use a normal 7-day password session (Step 7a rules apply).
 - Disabling a staff account means setting `active: false` on the user (owner, in the database);
   existing sessions stop working at once. There is no page for it.

@@ -91,6 +91,7 @@ src/
 scripts/                  Local-only CLI scripts run with Bun by the owner
   create-owner.ts         bun run auth:create-owner
   create-staff.ts         bun run auth:create-staff (INTERIM Quick Sales staff accounts)
+  reset-password.ts       bun run auth:reset-password (any account; revokes its sessions)
   setup-indexes.ts        bun run db:setup-indexes
 ```
 
